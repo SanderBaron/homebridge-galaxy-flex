@@ -222,15 +222,17 @@ class GalaxyFlexUiServer extends HomebridgePluginUiServer {
         for (const timer of this._testBlinkTimers.values()) clearInterval(timer);
         this._testBlinkTimers.clear();
 
-        // Activate scene
+        // Activate scene in batches van 10 (zelfde als alarm routine)
         const COLORS = { red:{x:0.675,y:0.322}, orange:{x:0.600,y:0.375}, yellow:{x:0.450,y:0.450}, green:{x:0.170,y:0.700}, blue:{x:0.167,y:0.040}, purple:{x:0.270,y:0.100}, pink:{x:0.400,y:0.200} };
         const BLINK_MS = { slow: 2000, fast: 800 };
+        const BATCH = 10;
 
-        for (const lc of scene) {
+        for (let i = 0; i < scene.length; i += BATCH) {
+          await Promise.all(scene.slice(i, i + BATCH).map(async lc => {
           const lightBody = { on: { on: true } };
-          if (lc.brightness && lc.supportsDimming !== false) lightBody.dimming = { brightness: Math.max(1, lc.brightness) };
-          if (lc.colorMode === 'color' && lc.color)          lightBody.color = { xy: COLORS[lc.color] || COLORS.red };
-          else if (lc.colorMode === 'colorTemp' && lc.colorTemp) lightBody.color_temperature = { mirek: Math.round(1000000 / lc.colorTemp) };
+          if (lc.supportsDimming !== false && lc.brightness) lightBody.dimming = { brightness: Math.max(1, lc.brightness) };
+          if (lc.supportsColor && lc.colorMode === 'color' && lc.color)              lightBody.color = { xy: COLORS[lc.color] || COLORS.red };
+          else if (lc.supportsColorTemp && lc.colorMode === 'colorTemp' && lc.colorTemp) lightBody.color_temperature = { mirek: Math.round(1000000 / lc.colorTemp) };
           await put(lc.lightId, lightBody);
 
           // Start blink if requested
@@ -246,6 +248,7 @@ class GalaxyFlexUiServer extends HomebridgePluginUiServer {
             }, halfInterval);
             this._testBlinkTimers.set(lc.lightId, timer);
           }
+          })); // einde batch Promise.all
         }
         return { ok: true, snapshotCount: this._testSnapshot.length };
       } catch (e) {
