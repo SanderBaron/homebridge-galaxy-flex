@@ -222,34 +222,36 @@ class GalaxyFlexUiServer extends HomebridgePluginUiServer {
         for (const timer of this._testBlinkTimers.values()) clearInterval(timer);
         this._testBlinkTimers.clear();
 
-        // Activate scene in batches van 10 (zelfde als alarm routine)
-        const COLORS = { red:{x:0.675,y:0.322}, orange:{x:0.600,y:0.375}, yellow:{x:0.450,y:0.450}, green:{x:0.170,y:0.700}, blue:{x:0.167,y:0.040}, purple:{x:0.270,y:0.100}, pink:{x:0.400,y:0.200} };
+        const COLORS   = { red:{x:0.675,y:0.322}, orange:{x:0.600,y:0.375}, yellow:{x:0.450,y:0.450}, green:{x:0.170,y:0.700}, blue:{x:0.167,y:0.040}, purple:{x:0.270,y:0.100}, pink:{x:0.400,y:0.200} };
         const BLINK_MS = { slow: 2000, fast: 800 };
-        const BATCH = 10;
 
-        for (let i = 0; i < scene.length; i += BATCH) {
-          await Promise.all(scene.slice(i, i + BATCH).map(async lc => {
+        // Fase 1: activeer alle lampen sequentieel (geen blink nog)
+        // Blinktimers starten pas nadat ALLE lampen aan zijn — anders eten ze bridge-quota
+        // op terwijl de activatieloop nog bezig is en vallen lampen achteraan af.
+        const blinkQueue = [];
+        for (const lc of scene) {
           const lightBody = { on: { on: true } };
           if (lc.supportsDimming !== false && lc.brightness) lightBody.dimming = { brightness: Math.max(1, lc.brightness) };
-          if (lc.supportsColor && lc.colorMode === 'color' && lc.color)              lightBody.color = { xy: COLORS[lc.color] || COLORS.red };
-          else if (lc.supportsColorTemp && lc.colorMode === 'colorTemp' && lc.colorTemp) lightBody.color_temperature = { mirek: Math.round(1000000 / lc.colorTemp) };
+          if (lc.supportsColor && lc.colorMode === 'color' && lc.color)                   lightBody.color = { xy: COLORS[lc.color] || COLORS.red };
+          else if (lc.supportsColorTemp && lc.colorMode === 'colorTemp' && lc.colorTemp)  lightBody.color_temperature = { mirek: Math.round(1000000 / lc.colorTemp) };
           await put(lc.lightId, lightBody);
-
-          // Start blink if requested
           if (lc.blink && lc.blink !== 'none' && BLINK_MS[lc.blink]) {
-            const halfInterval = BLINK_MS[lc.blink] / 2;
-            const colorBody    = { ...lightBody };
-            let blinkOn = true;
-            const timer = setInterval(async () => {
-              blinkOn = !blinkOn;
-              try {
-                await put(lc.lightId, blinkOn ? colorBody : { on: { on: false } });
-              } catch { /* bridge busy */ }
-            }, halfInterval);
-            this._testBlinkTimers.set(lc.lightId, timer);
+            blinkQueue.push({ lc, colorBody: { ...lightBody } });
           }
-          })); // einde batch Promise.all
+          await new Promise(r => setTimeout(r, 100)); // 100ms = max 10/sec
         }
+
+        // Fase 2: start blinktimers pas als alle lampen aan zijn
+        for (const { lc, colorBody } of blinkQueue) {
+          const halfInterval = BLINK_MS[lc.blink] / 2;
+          let blinkOn = true;
+          const timer = setInterval(async () => {
+            blinkOn = !blinkOn;
+            try { await put(lc.lightId, blinkOn ? colorBody : { on: { on: false } }); } catch { /* bridge busy */ }
+          }, halfInterval);
+          this._testBlinkTimers.set(lc.lightId, timer);
+        }
+
         return { ok: true, snapshotCount: this._testSnapshot.length };
       } catch (e) {
         return { ok: false, error: e.message };
@@ -266,6 +268,11 @@ class GalaxyFlexUiServer extends HomebridgePluginUiServer {
       const put = (id, b) => nodeRequest(`https://${cfg.hueBridgeIp}/clip/v2/resource/light/${id}`, 'PUT', JSON.stringify(b), { 'hue-application-key': cfg.hueApiKey, 'Content-Type': 'application/json' }, agent);
 
       try {
+        // Stop blinks eerst — anders blijven ze bridge-quota eten tijdens het herstellen
+        for (const timer of this._testBlinkTimers.values()) clearInterval(timer);
+        this._testBlinkTimers.clear();
+
+        // Herstel sequentieel met 100ms pauze (zelfde limiet als activatie)
         for (const s of this._testSnapshot) {
           const body = { on: { on: s.on } };
           if (s.on) {
@@ -274,10 +281,8 @@ class GalaxyFlexUiServer extends HomebridgePluginUiServer {
             else if (s.colorXy) body.color = { xy: s.colorXy };
           }
           await put(s.id, body);
+          await new Promise(r => setTimeout(r, 100));
         }
-        // Stop blink timers on restore
-        for (const timer of this._testBlinkTimers.values()) clearInterval(timer);
-        this._testBlinkTimers.clear();
         this._testSnapshot = null;
         return { ok: true };
       } catch (e) {

@@ -91,8 +91,8 @@ export class HueClient {
           colorTemp:  s.colorTemp,
           colorXy:    s.colorXy,
         });
-        // Kleine pauze tussen requests om rate limiting te voorkomen
-        await new Promise(r => setTimeout(r, 50));
+        // 100ms pauze = max 10 req/sec, gelijk aan Hue bridge limiet
+        await new Promise(r => setTimeout(r, 100));
       } catch { /* ga door met de rest */ }
     }
   }

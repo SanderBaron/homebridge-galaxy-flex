@@ -89,10 +89,21 @@ export class AlarmLighting {
     this.stopAllBlinks();
     this.cancelRestoreTimer();
 
-    // Activeer lampen sequentieel met kleine pauze — Hue bridge heeft ~10 req/sec limiet
+    // Fase 1: activeer alle lampen (kleur + helderheid) — blinktimers nog NIET starten.
+    // Reden: blinktimers vuren elke 400-1000ms en eten bridge-quota op terwijl de
+    // activatieloop nog bezig is, waardoor lampen aan het eind van de rij worden overgeslagen.
+    type BlinkParam = { cfg: LightSceneConfig; colorXy?: { x: number; y: number }; colorTemp?: number; supportsDimming: boolean };
+    const blinkQueue: BlinkParam[] = [];
+
     for (const cfg of scene) {
-      await this.activateLight(cfg);
-      await new Promise(r => setTimeout(r, 60)); // 60ms ≈ max 16/sec, ruim onder bridge limiet
+      const bp = await this.activateLight(cfg);
+      if (bp) blinkQueue.push({ cfg, ...bp });
+      await new Promise(r => setTimeout(r, 100)); // 100ms = max 10/sec, gelijk aan bridge limiet
+    }
+
+    // Fase 2: start blinktimers pas als alle lampen actief zijn
+    for (const bp of blinkQueue) {
+      this.startBlink(bp.cfg, bp.colorXy, bp.colorTemp, bp.supportsDimming);
     }
 
     // Auto-restore timer
@@ -141,7 +152,9 @@ export class AlarmLighting {
     }
   }
 
-  private async activateLight(cfg: LightSceneConfig): Promise<void> {
+  // Activeert één lamp (on + kleur + helderheid). Geeft blink-parameters terug als de lamp
+  // moet knipperen — de aanroeper start de blinktimers pas ná de volledige activatieloop.
+  private async activateLight(cfg: LightSceneConfig): Promise<{ colorXy?: { x: number; y: number }; colorTemp?: number; supportsDimming: boolean } | null> {
     const colorXy   = cfg.colorMode === 'color' && cfg.color
       ? (COLORS[cfg.color] ?? COLORS['red'])
       : undefined;
@@ -162,10 +175,8 @@ export class AlarmLighting {
 
     await this.client.setLight(cfg.lightId, setOpts);
 
-    // Software blink (native signaling heeft bugs in Hue firmware, altijd software)
-    if (cfg.blink !== 'none') {
-      this.startBlink(cfg, colorXy, colorTemp, supportsDimming);
-    }
+    // Geef blink-parameters terug voor fase 2 (software blink, native signaling heeft firmwarebugs)
+    return cfg.blink !== 'none' ? { colorXy, colorTemp, supportsDimming } : null;
   }
 
   private startBlink(cfg: LightSceneConfig, colorXy?: { x: number; y: number }, colorTemp?: number, supportsDimming = true): void {
