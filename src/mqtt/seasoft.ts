@@ -14,9 +14,10 @@ export const GROUP_STATE = {
 
 export const GROUP_CMD = {
   UNSET: '0',
-  FULL: '1',
+  FULL: '1',   // volledig in — alleen als alle zones OK zijn
   PART: '2',
-  RESET: '3',
+  RESET: '3',  // reset alarm (bij blokstatus 1 of 2)
+  FORCE: '5',  // volledig in met bypass van overbrugbare zones (aanbevolen voor AWAY_ARM)
   NIGHT: '6',
 } as const;
 

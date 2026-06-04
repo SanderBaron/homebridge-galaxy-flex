@@ -55,7 +55,7 @@ export class SecuritySystemAccessory {
     let cmd: string;
     switch (value) {
       case AlarmState.AWAY_ARM:
-        cmd = GROUP_CMD.FULL;
+        cmd = GROUP_CMD.FORCE; // FORCE ipv FULL — bypaset overbrugbare zones automatisch
         break;
       case AlarmState.STAY_ARM:
       case AlarmState.NIGHT_ARM:
