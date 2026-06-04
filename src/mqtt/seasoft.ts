@@ -107,7 +107,15 @@ export class SeasoftMqttClient extends EventEmitter {
 
     const groupAlarmMatch = topic.match(new RegExp(`^${this.baseEsc}/group/([^/]+)/alarm$`));
     if (groupAlarmMatch) {
-      this.groupAlarmState.set(groupAlarmMatch[1], payload === '1');
+      const group    = groupAlarmMatch[1];
+      const wasAlarm = this.groupAlarmState.get(group) ?? false;
+      const isAlarm  = payload === '1';
+      this.groupAlarmState.set(group, isAlarm);
+
+      // Emit direct zodra alarm activeert — niet wachten op group state update
+      if (isAlarm && !wasAlarm) {
+        this.emit('group', { group, state: GROUP_STATE.FULL, alarm: true } as GroupStateEvent);
+      }
       return;
     }
 
