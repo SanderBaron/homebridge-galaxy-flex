@@ -79,6 +79,7 @@ export class SeasoftMqttClient extends EventEmitter {
     const base = `${this.baseTopic}/${this.uniqueId}`;
     for (const topic of [
       `${base}/zone/+/state`,
+      `${base}/zone/+/attr`,
       `${base}/group/+/state`,
       `${base}/group/+/alarm`,
       `${base}/device/state`,
@@ -95,6 +96,19 @@ export class SeasoftMqttClient extends EventEmitter {
     const zoneMatch = topic.match(new RegExp(`^${this.baseEsc}/zone/(\\d+)/state$`));
     if (zoneMatch) {
       this.emit('zone', { zone: parseInt(zoneMatch[1], 10), active: payload === '1' } as ZoneStateEvent);
+      return;
+    }
+
+    // Zone attr: alarm:1 betekent dat de zone actief in alarm is → direct melden
+    const zoneAttrMatch = topic.match(new RegExp(`^${this.baseEsc}/zone/(\\d+)/attr$`));
+    if (zoneAttrMatch) {
+      try {
+        const attr = JSON.parse(payload) as { alarm?: number };
+        if (attr.alarm === 1) {
+          // Zoek de groep op die hiert bij hoort (standaard A1)
+          this.emit('zone-alarm', { zone: parseInt(zoneAttrMatch[1], 10) });
+        }
+      } catch { /* malformed */ }
       return;
     }
 

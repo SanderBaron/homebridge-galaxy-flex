@@ -175,6 +175,15 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     });
     this.seasoftClient.on('zone', (ev: ZoneStateEvent) => this.handleZoneState(ev));
     this.seasoftClient.on('group', (ev: GroupStateEvent) => this.handleGroupState(ev, seasoftGroup));
+    this.seasoftClient.on('zone-alarm', (ev: { zone: number }) => {
+      // Zone attr meldt alarm:1 — dit komt DIRECT wanneer het alarm triggert,
+      // niet pas bij deactiveren zoals de BA group event
+      this.log.info(`Zone ${ev.zone} in alarm — direct ALARM_TRIGGERED`);
+      this.securitySystem?.updateState(AlarmState.ALARM_TRIGGERED);
+      this.writeState({ alarmState: 'ALARM_TRIGGERED' });
+      const alarmType = this.getAlarmTypeForZone(ev.zone);
+      this.alarmLighting?.onAlarm(alarmType).catch(err => this.log.error(`Hue ${alarmType}: ${err}`));
+    });
     this.seasoftClient.on('user-event', (ev: { userId: string; code: string; text: string }) => {
       const sensor = this.userSensors.get(ev.userId);
       if (sensor) {
@@ -296,6 +305,11 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, stale);
       this.log.info(`Removed ${stale.length} stale accessories`);
     }
+  }
+
+  private getAlarmTypeForZone(zoneId: number): 'fire' | 'intrusion' {
+    const sensor = this.zoneSensors.get(zoneId);
+    return sensor?.getStateForUi().type === 'smoke' ? 'fire' : 'intrusion';
   }
 
   private handleZoneState(ev: ZoneStateEvent): void {
