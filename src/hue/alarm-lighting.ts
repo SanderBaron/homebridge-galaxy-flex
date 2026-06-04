@@ -89,8 +89,11 @@ export class AlarmLighting {
     this.stopAllBlinks();
     this.cancelRestoreTimer();
 
-    // Activate each light
-    await Promise.allSettled(scene.map(cfg => this.activateLight(cfg)));
+    // Activeer lampen in batches van 10 om bridge niet te overbelasten
+    const BATCH = 10;
+    for (let i = 0; i < scene.length; i += BATCH) {
+      await Promise.allSettled(scene.slice(i, i + BATCH).map(cfg => this.activateLight(cfg)));
+    }
 
     // Auto-restore timer
     const minutes = this.config.restoreAfterMinutes ?? 15;
