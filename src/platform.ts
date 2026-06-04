@@ -13,7 +13,7 @@ import { SiaMessage, AlarmState, codeToAlarmState, isAlarmCode, isRestoreCode } 
 import { SecuritySystemAccessory } from './accessories/security-system';
 import { ZoneSensorAccessory, ZoneConfig } from './accessories/zone-sensor';
 import { MqttBroker } from './mqtt/broker';
-import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, GROUP_STATE } from './mqtt/seasoft';
+import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, GROUP_STATE, GROUP_ALARM } from './mqtt/seasoft';
 import { HueClient } from './hue/hue-client';
 import { AlarmLighting, AlarmLightingConfig } from './hue/alarm-lighting';
 import { UserSensorAccessory } from './accessories/user-sensor';
@@ -331,21 +331,23 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
 
     let newState: AlarmState;
     switch (ev.state) {
-      case GROUP_STATE.FULL:
-      case GROUP_STATE.FORCE:
+      case GROUP_STATE.SET:
         newState = AlarmState.AWAY_ARM;
         break;
-      case GROUP_STATE.PART:
-      case GROUP_STATE.NIGHT:
+      case GROUP_STATE.PART_SET:
         newState = AlarmState.NIGHT_ARM;
         break;
-      case GROUP_STATE.UNSET:
-      case GROUP_STATE.RESET:
+      case GROUP_STATE.NOT_READY:  // uitgeschakeld of open zones
+      case GROUP_STATE.READY:      // klaar om in te schakelen (nog niet ingeschakeld)
         newState = AlarmState.DISARMED;
         break;
+      case GROUP_STATE.TIME_LOCKED:
+        return; // tijdslot — negeer, geen state change
       default:
         return;
     }
+
+    // Alarm topic heeft prioriteit boven state
     if (ev.alarm) newState = AlarmState.ALARM_TRIGGERED;
 
     this.securitySystem?.updateState(newState);

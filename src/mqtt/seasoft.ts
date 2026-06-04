@@ -2,23 +2,31 @@ import * as mqtt from 'mqtt';
 import { EventEmitter } from 'events';
 import { Logger } from 'homebridge';
 
+// group/<GRP>/state values (wat het paneel publiceert)
 export const GROUP_STATE = {
-  UNSET: '0',
-  FULL: '1',
-  PART: '2',
-  RESET: '3',
-  UNKNOWN: '4',
-  FORCE: '5',
-  NIGHT: '6',
+  NOT_READY:   '0',  // niet klaar / uitgeschakeld (open zones aanwezig)
+  SET:         '1',  // volledig ingeschakeld
+  PART_SET:    '2',  // deels ingeschakeld
+  READY:       '3',  // klaar om in te schakelen (alle zones dicht, nog niet ingeschakeld)
+  TIME_LOCKED: '4',  // tijd vergrendeld
 } as const;
 
+// group/<GRP>/alarm values
+export const GROUP_ALARM = {
+  NORMAL:         '0',
+  ALARM:          '1',
+  RESET_REQUIRED: '2',  // alarm geweest, paneel moet gereset worden
+} as const;
+
+// group/<GRP>/cmd/set values (commando's die wij sturen)
 export const GROUP_CMD = {
-  UNSET: '0',
-  FULL: '1',   // volledig in — alleen als alle zones OK zijn
-  PART: '2',
-  RESET: '3',  // reset alarm (bij blokstatus 1 of 2)
-  FORCE: '5',  // volledig in met bypass van overbrugbare zones (aanbevolen voor AWAY_ARM)
-  NIGHT: '6',
+  UNSET: '0',  // uitschakelen
+  FULL:  '1',  // volledig inschakelen (alleen als alle zones OK)
+  PART:  '2',  // deelbewapening
+  RESET: '3',  // reset (na alarm, bij alarm=1 of alarm=2)
+  ABORT: '4',  // afbreken inschakeling
+  FORCE: '5',  // volledig inschakelen met bypass van overbrugbare zones (aanbevolen)
+  NIGHT: '6',  // nachtbewapening (Flex only, Dimension ondersteunt dit niet)
 } as const;
 
 export interface ZoneStateEvent  { zone: number; active: boolean }
@@ -124,12 +132,13 @@ export class SeasoftMqttClient extends EventEmitter {
     if (groupAlarmMatch) {
       const group    = groupAlarmMatch[1];
       const wasAlarm = this.groupAlarmState.get(group) ?? false;
-      const isAlarm  = payload === '1';
+      // alarm=1 (alarm actief) en alarm=2 (reset required) zijn beide alarm-actief
+      const isAlarm  = payload === GROUP_ALARM.ALARM || payload === GROUP_ALARM.RESET_REQUIRED;
       this.groupAlarmState.set(group, isAlarm);
 
       // Emit direct zodra alarm activeert — niet wachten op group state update
       if (isAlarm && !wasAlarm) {
-        this.emit('group', { group, state: GROUP_STATE.FULL, alarm: true } as GroupStateEvent);
+        this.emit('group', { group, state: GROUP_STATE.SET, alarm: true } as GroupStateEvent);
       }
       return;
     }
