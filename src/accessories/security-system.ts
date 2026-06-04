@@ -62,7 +62,12 @@ export class SecuritySystemAccessory {
         cmd = GROUP_CMD.PART;
         break;
       case AlarmState.DISARMED:
-        cmd = GROUP_CMD.UNSET;
+        // Als het paneel nog niet bevestigd heeft dat het ingeschakeld is
+        // (currentState is nog DISARMED) → ABORT om lopende activatie te annuleren.
+        // Als het paneel al gemeld heeft dat het ingeschakeld is → UNSET.
+        cmd = (this.currentState === AlarmState.DISARMED)
+          ? GROUP_CMD.ABORT
+          : GROUP_CMD.UNSET;
         break;
       default:
         this.platform.log.warn(`Unknown target state: ${value}`);
