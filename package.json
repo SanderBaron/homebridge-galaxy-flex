@@ -1,0 +1,38 @@
+{
+  "name": "homebridge-galaxy-flex",
+  "version": "0.1.0",
+  "description": "HomeBridge plugin for Honeywell Galaxy Flex alarm system via SIA DC-09",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "honeywell",
+    "galaxy-flex",
+    "sia",
+    "alarm"
+  ],
+  "author": "SanderBaron",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=1.6.0"
+  },
+  "devDependencies": {
+    "@homebridge/plugin-ui-utils": "^2.2.4",
+    "@types/node": "^22.0.0",
+    "homebridge": "^1.9.0",
+    "typescript": "^5.0.0"
+  },
+  "peerDependencies": {
+    "homebridge": ">=1.6.0"
+  },
+  "dependencies": {
+    "aedes": "^1.0.2",
+    "bonjour-service": "^1.4.0",
+    "mqtt": "^5.15.1"
+  }
+}

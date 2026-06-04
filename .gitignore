@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.js.map
+
+# Homebridge config (contains userCode, passwords — never commit)
+config.json
+
+# Runtime state files
+galaxy-flex-state.json
+galaxy-flex-hue-snapshot.json
+
+# Claude Code project files (contain personal/local info)
+.claude/
+CLAUDE.md
+
+# Development tools (contain hardcoded IPs, used during development only)
+tools/
+probe-*.js
+proxy-*.js
+test-*.js
+
+# Personal notes
+*.md
+!README.md
+
+# macOS
+.DS_Store

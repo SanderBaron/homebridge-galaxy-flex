@@ -1,0 +1,268 @@
+{
+  "pluginAlias": "GalaxyFlex",
+  "pluginType": "platform",
+  "singular": true,
+  "customUi": true,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Naam",
+        "type": "string",
+        "default": "Galaxy Flex",
+        "required": true
+      },
+
+      "port": {
+        "title": "SIA ontvanger poort",
+        "type": "integer",
+        "default": 52000,
+        "description": "TCP-poort waarop de plugin luistert voor SIA-meldingen van de Galaxy Ethernet module (standaard 52000).",
+        "placeholder": "52000"
+      },
+      "account": {
+        "title": "SIA accountnummer",
+        "type": "string",
+        "description": "Accountnummer zoals ingesteld in menu 56 van het alarm. Leeg = alle accounts accepteren."
+      },
+
+      "seasoftEnabled": {
+        "title": "Seasoft Galaxy Gateway gebruiken",
+        "type": "boolean",
+        "default": false,
+        "description": "Schakel in als je een Seasoft Galaxy Gateway (RS485) hebt. Geeft live zone-status en arm/disarm bediening via HomeKit."
+      },
+      "seasoftIp": {
+        "title": "Seasoft IP-adres",
+        "type": "string",
+        "format": "ipv4",
+        "placeholder": "192.168.1.x",
+        "description": "IP-adres van de Seasoft module in je netwerk."
+      },
+      "seasoftPassword": {
+        "title": "Seasoft wachtwoord",
+        "type": "string",
+        "description": "Wachtwoord van de Seasoft webinterface (leeg laten als nog niet ingesteld)."
+      },
+      "seasoftUniqueId": {
+        "title": "Seasoft uniek ID",
+        "type": "string",
+        "placeholder": "abc123",
+        "description": "Uniek ID van de Seasoft module (te vinden op het dashboard van de module). Leeg = automatisch detecteren."
+      },
+      "seasoftGroup": {
+        "title": "Primaire groep / area",
+        "type": "string",
+        "default": "A1",
+        "description": "Naam van de hoofdgroep op het alarm (standaard A1)."
+      },
+      "seasoftBaseTopic": {
+        "title": "MQTT base topic",
+        "type": "string",
+        "default": "galaxy",
+        "description": "MQTT base topic zoals ingesteld in de Seasoft module (standaard 'galaxy')."
+      },
+
+      "mqttPort": {
+        "title": "MQTT broker poort",
+        "type": "integer",
+        "default": 1883,
+        "description": "Poort voor de ingebouwde MQTT broker (of de externe broker als je die gebruikt).",
+        "placeholder": "1883"
+      },
+      "mqttExternalBroker": {
+        "title": "Externe MQTT broker gebruiken",
+        "type": "boolean",
+        "default": false,
+        "description": "Schakel in als je al een MQTT broker hebt (bijv. Mosquitto of Home Assistant). De plugin start dan geen eigen broker."
+      },
+      "mqttBrokerUrl": {
+        "title": "Externe broker URL",
+        "type": "string",
+        "placeholder": "mqtt://192.168.1.x:1883",
+        "description": "Volledig adres van je externe MQTT broker. Alleen nodig als 'Externe MQTT broker' aan staat."
+      },
+      "mqttUsername": {
+        "title": "MQTT gebruikersnaam",
+        "type": "string",
+        "description": "Gebruikersnaam voor de MQTT broker (optioneel)."
+      },
+      "mqttPassword": {
+        "title": "MQTT wachtwoord",
+        "type": "string",
+        "description": "Wachtwoord voor de MQTT broker (optioneel)."
+      },
+
+      "hueBridgeIp": {
+        "title": "Hue Bridge IP-adres",
+        "type": "string",
+        "format": "ipv4",
+        "placeholder": "192.168.1.x",
+        "description": "IP-adres van de Philips Hue Bridge in je netwerk."
+      },
+      "hueApiKey": {
+        "title": "Hue API key",
+        "type": "string",
+        "description": "API key voor de Hue Bridge. Aanmaken via de knop in het Dashboard tabblad."
+      },
+      "hueRestoreAfterMinutes": {
+        "title": "Verlichting herstellen na (minuten)",
+        "type": "integer",
+        "default": 15,
+        "description": "Aantal minuten waarna de verlichting automatisch terugkeert naar de oorspronkelijke staat, ook als het alarm niet is gereset."
+      },
+
+      "users": {
+        "title": "Gebruikers",
+        "type": "array",
+        "description": "Koppel alarm-gebruikersnummers aan namen. Per gebruiker verschijnt een ContactSensor in HomeKit voor gepersonaliseerde push-meldingen.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "Gebruiker ID",
+              "type": "string",
+              "description": "Gebruikersnummer zoals in het alarm (1–10 of 001–010).",
+              "required": true
+            },
+            "name": {
+              "title": "Naam",
+              "type": "string",
+              "description": "Naam die in HomeKit verschijnt. Meerdere IDs met dezelfde naam delen één sensor (bijv. twee keyfobs voor Sanne).",
+              "required": true
+            }
+          }
+        }
+      },
+
+      "zones": {
+        "title": "Zones",
+        "type": "array",
+        "description": "Handmatig geconfigureerde zones. Niet nodig als je de Seasoft module gebruikt met automatische zone-detectie.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "zone": {
+              "title": "Zone nummer",
+              "type": "integer",
+              "required": true
+            },
+            "name": {
+              "title": "Zone naam",
+              "type": "string",
+              "required": true
+            },
+            "type": {
+              "title": "Sensor type",
+              "type": "string",
+              "enum": ["contact", "motion", "smoke"],
+              "default": "contact",
+              "required": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "layout": [
+    {
+      "type": "section",
+      "title": "SIA ontvanger",
+      "expandable": true,
+      "expanded": true,
+      "items": [
+        "name",
+        {
+          "key": "port",
+          "type": "number"
+        },
+        "account"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Seasoft Galaxy Gateway",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "seasoftEnabled",
+        "seasoftIp",
+        {
+          "key": "seasoftPassword",
+          "type": "password"
+        },
+        "seasoftUniqueId",
+        "seasoftGroup",
+        "seasoftBaseTopic"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Gebruikers",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "users",
+          "type": "array",
+          "title": "Gebruiker",
+          "items": [
+            "users[].id",
+            "users[].name"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Hue alarmlichten",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "hueBridgeIp",
+        "hueApiKey",
+        {
+          "key": "hueRestoreAfterMinutes",
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "MQTT broker",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "mqttExternalBroker",
+        {
+          "key": "mqttPort",
+          "type": "number"
+        },
+        "mqttBrokerUrl",
+        "mqttUsername",
+        {
+          "key": "mqttPassword",
+          "type": "password"
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Zones",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        {
+          "key": "zones",
+          "type": "array",
+          "title": "Zone",
+          "items": [
+            "zones[].zone",
+            "zones[].name",
+            "zones[].type"
+          ]
+        }
+      ]
+    }
+  ]
+}

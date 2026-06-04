@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Galaxy Flex</title>
+  <style>
+    :root {
+      --bg:      transparent;
+      --card:    var(--homebridge-card-background,   #1e1e1e);
+      --border:  var(--homebridge-card-border,       #333);
+      --text:    var(--homebridge-text-color,        #e0e0e0);
+      --muted:   var(--homebridge-secondary-text-color, #888);
+      --green:  #4caf50; --red: #f44336; --orange: #ff9800;
+      --blue:   #2196f3; --yellow: #ffc107; --purple: #9c27b0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); padding: 16px; }
+
+    /* ── Layout ── */
+    .top-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .mid-grid  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 12px; }
+    .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+
+    /* ── Cards ── */
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+    .card-sm { padding: 11px 14px; }
+    .label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 5px; }
+    .value { font-size: 17px; font-weight: 600; }
+    .sub   { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    /* ── Info rows inside card ── */
+    .info-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .info-row:last-child { border-bottom: none; }
+    .info-key { color: var(--muted); }
+    .info-val { font-weight: 500; text-align: right; }
+
+    /* ── Badges ── */
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 99px; font-size: 12px; font-weight: 600; }
+    .g  { background: rgba(76,175,80,.15);  color: var(--green); }
+    .r  { background: rgba(244,67,54,.15);  color: var(--red); }
+    .o  { background: rgba(255,152,0,.15);  color: var(--orange); }
+    .b  { background: rgba(33,150,243,.15); color: var(--blue); }
+    .gr { background: rgba(136,136,136,.15);color: var(--muted); }
+    .dot-g { width:8px;height:8px;border-radius:50%;background:var(--green); }
+    .dot-r { width:8px;height:8px;border-radius:50%;background:var(--red); }
+    .dot-o { width:8px;height:8px;border-radius:50%;background:var(--orange); }
+
+    /* ── Zone item ── */
+    .zone-item { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 9px 13px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .zone-name { font-size: 13px; font-weight: 500; }
+    .zone-meta { font-size: 11px; color: var(--muted); }
+
+    /* ── Section title ── */
+    .sec { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin: 16px 0 8px; }
+
+    /* ── Setup screen ── */
+    .setup { text-align: center; padding: 40px 20px; }
+    .setup h2 { font-size: 20px; margin-bottom: 10px; }
+    .setup p  { color: var(--muted); font-size: 14px; line-height: 1.6; max-width: 420px; margin: 0 auto 20px; }
+    .steps { text-align: left; max-width: 400px; margin: 0 auto 24px; }
+    .step  { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .step:last-child { border-bottom: none; }
+    .step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex-shrink: 0; }
+
+    /* ── Buttons ── */
+    .btn { cursor: pointer; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; transition: opacity .15s; }
+    .btn:hover { opacity: .8; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-ghost   { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; font-size: 12px; }
+    .btn-ghost:hover { color: var(--text); }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .toolbar-title { font-size: 14px; font-weight: 600; }
+    .toolbar-actions { display: flex; gap: 8px; align-items: center; }
+
+    /* ── Test / configure result ── */
+    .test-result { margin-top: 8px; font-size: 13px; padding: 8px 12px; border-radius: 6px; }
+    .test-ok  { background: rgba(76,175,80,.1);  color: var(--green); }
+    .test-err { background: rgba(244,67,54,.1);  color: var(--red); }
+    .test-info { background: rgba(33,150,243,.1); color: var(--blue); }
+
+    /* ── Setup page ── */
+    .setup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 4px; }
+    .setup-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+    .setup-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .setup-step { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; line-height: 1.5; }
+    .setup-step:last-child { border-bottom: none; }
+    .setup-num { width: 22px; height: 22px; border-radius: 50%; background: var(--blue); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; flex-shrink: 0; margin-top: 1px; }
+    .setup-num.green { background: var(--green); }
+    .code-val { font-family: monospace; background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+    .change-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; border-bottom: 1px solid var(--border); }
+    .change-row:last-child { border-bottom: none; }
+    .change-from { color: var(--muted); text-decoration: line-through; }
+    .change-to   { color: var(--green); font-weight: 600; }
+    details summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 6px 0; user-select: none; }
+    details summary:hover { color: var(--text); }
+    details[open] summary { color: var(--text); }
+
+    .footer { font-size: 11px; color: var(--muted); text-align: right; margin-top: 14px; }
+  </style>
+</head>
+<body>
+<div id="root"><p style="color:var(--muted);padding:24px 0;text-align:center">Laden…</p></div>
+
+<script>
+const ALARM_LABELS = {
+  DISARMED:         ['Uit',      'b'],
+  AWAY_ARM:         ['Afwezig',  'g'],
+  STAY_ARM:         ['Thuis',    'o'],
+  NIGHT_ARM:        ['Nacht',    'o'],
+  ALARM_TRIGGERED:  ['ALARM',    'r'],
+};
+const ZONE_ICON  = { contact: '🚪', motion: '🏃', smoke: '🔥' };
+const ZONE_LABEL = { contact: 'Deur / raam', motion: 'Beweging', smoke: 'Rookmelder' };
+
+// ── Render helpers ──────────────────────────────────────────────────────────
+
+function badge(cls, dotCls, text) {
+  return `<span class="badge ${cls}">${dotCls ? `<span class="${dotCls}"></span>` : ''}${text}</span>`;
+}
+
+function infoRow(key, val) {
+  return `<div class="info-row"><span class="info-key">${key}</span><span class="info-val">${val}</span></div>`;
+}
+
+function statusBadge(online, labelOn = 'Connected', labelOff = 'Offline') {
+  return online
+    ? badge('g', 'dot-g', labelOn)
+    : badge('r', 'dot-r', labelOff);
+}
+
+// ── Setup screen (shown when Seasoft not configured, or preview) ─────────────
+
+function renderSetup(mod, state, { isPreview = false } = {}) {
+  const hostIp   = mod?.hostIp  || '?';
+  const mqttPort = mod?.mqttPort || 1883;
+  const siaPort  = mod?.siaPort  || 52000;
+  const seasoftIp = mod?.seasoftIp || '?';
+
+  const previewBanner = isPreview ? `
+    <div style="background:rgba(255,152,0,.12);border:1px solid rgba(255,152,0,.3);border-radius:8px;padding:8px 14px;font-size:12px;color:var(--orange);margin-bottom:14px">
+      👁 Preview — zo ziet een nieuwe gebruiker dit scherm. Jouw config is ongewijzigd.
+    </div>` : '';
+
+  return `
+    ${toolbar('Galaxy Flex — Installatie', { previewActive: isPreview })}
+    ${previewBanner}
+
+    <p style="font-size:13px;color:var(--muted);margin-bottom:14px">
+      De plugin is actief. Volg de stappen hieronder om de volledige integratie in te stellen.
+      <strong style="color:var(--text)">Stap 1 en 2 zijn éénmalig</strong> — daarna werkt alles automatisch.
+    </p>
+
+    <div class="setup-grid">
+
+      <!-- STAP 1: Alarm panel -->
+      <div class="setup-card">
+        <h3><span style="background:var(--blue);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px">1</span> Alarm panel instellen</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Eenmalig via het codebediendeel van het alarm (vereist installateurscode).</p>
+        <div class="setup-step"><div class="setup-num">→</div><div>Ga naar <strong>Menu 56 → 1 → Slot 1 → 2 (Format)</strong> en stel in op <span class="code-val">SIA Level 4</span>.</div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Ga naar <strong>Menu 56 → 1 → Slot 1 → 3 (IP)</strong> en vul in: <span class="code-val">${hostIp}</span></div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Stel de poort in op <span class="code-val">${siaPort}</span>.</div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Stel het accountnummer in op het nummer dat je in de plugin-instellingen hebt ingevuld.</div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Zet <strong>Encryptie</strong> op <span class="code-val">Uit</span> (Menu 56 → 3 → Ethernet → Encrypt → Alarm Report = 0).</div></div>
+      </div>
+
+      <!-- STAP 2: Seasoft module -->
+      <div class="setup-card">
+        <h3><span style="background:var(--blue);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px">2</span> Seasoft MQTT instellen</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">Kies automatisch of handmatig:</p>
+
+        <div style="background:rgba(76,175,80,.07);border:1px solid rgba(76,175,80,.2);border-radius:8px;padding:12px;margin-bottom:10px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:6px">🤖 Automatisch configureren</div>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:10px">De plugin past de Seasoft module zelf aan. Je ziet eerst precies wat er verandert.</p>
+          <button class="btn btn-primary" style="width:100%" onclick="startAutoConfigure()">Bekijk wat er verandert →</button>
+          <div id="configure-result" style="margin-top:8px"></div>
+        </div>
+
+        <details>
+          <summary>↓ Handmatig instellen (als automatisch niet werkt)</summary>
+          <div style="padding-top:10px">
+            <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Open <a href="http://${seasoftIp}" target="_blank" style="color:var(--blue)">http://${seasoftIp}</a> en ga naar <strong>MQTT instellingen</strong>:</p>
+            <div class="change-row"><span>MQTT inschakelen</span><span class="change-to">Aan</span></div>
+            <div class="change-row"><span>Broker IP</span><span class="code-val">${hostIp}</span></div>
+            <div class="change-row"><span>Broker poort</span><span class="code-val">${mqttPort}</span></div>
+            <div class="change-row"><span>Client naam</span><span class="code-val">galaxygateway</span></div>
+            <div class="change-row"><span>Base topic</span><span class="code-val">galaxy</span></div>
+            <div class="change-row"><span>Autodiscovery</span><span class="change-to">Aan · homeassistant</span></div>
+          </div>
+        </details>
+      </div>
+
+      <!-- STAP 3: HomeBridge config -->
+      <div class="setup-card">
+        <h3><span style="background:var(--blue);color:#fff;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px">3</span> Plugin instellen in HomeBridge</h3>
+        <div class="setup-step"><div class="setup-num">→</div><div>Klik op <strong>⚙ Instellingen</strong> hierboven.</div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Vul het <strong>IP-adres van de Seasoft module</strong> in (te vinden in je router of op het label van de module).</div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Zet <strong>"Seasoft Galaxy Gateway gebruiken"</strong> aan.</div></div>
+        <div class="setup-step"><div class="setup-num">→</div><div>Voeg je <strong>zones</strong> toe (zone nummer, naam, type: contact/motion/smoke).</div></div>
+        <div class="setup-step"><div class="setup-num green">✓</div><div>Sla op en herstart HomeBridge. De koppeling is actief.</div></div>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary" onclick="homebridge.showSchemaForm()">⚙ Naar instellingen</button>
+        </div>
+      </div>
+
+      <!-- Werkt ook zonder Seasoft -->
+      <div class="setup-card" style="border-color:rgba(33,150,243,.3)">
+        <h3 style="color:var(--blue)">ℹ Zonder Seasoft module</h3>
+        <p style="font-size:13px;color:var(--muted);line-height:1.6">
+          Heb je geen Seasoft module? Dan werkt de plugin in <strong style="color:var(--text)">SIA-only modus</strong>:<br><br>
+          ✓ Alarm-meldingen in Apple Home (inbraak, brand, paniek)<br>
+          ✓ Pushnotificaties bij statuswijziging<br>
+          ✗ Geen live zone-status<br>
+          ✗ Geen arm/disarm via HomeKit
+        </p>
+        <p style="font-size:12px;color:var(--muted);margin-top:10px">Alleen stap 1 en 3 zijn dan nodig. Laat "Seasoft module gebruiken" uitstaan.</p>
+      </div>
+
+    </div>`;
+}
+
+// ── Unreachable screen ───────────────────────────────────────────────────────
+
+function renderUnreachable(mod) {
+  return `
+    ${toolbar('Galaxy Flex Dashboard')}
+    <div class="card" style="text-align:center;padding:32px">
+      ${badge('r', 'dot-r', 'Seasoft module niet bereikbaar')}
+      <div class="sub" style="margin-top:10px">IP: ${mod.seasoftIp || '?'} — controleer netwerk en instellingen.</div>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:16px">
+        <button class="btn btn-ghost" onclick="testConn()">🔌 Verbinding testen</button>
+        <button class="btn btn-primary" onclick="homebridge.showSchemaForm()">⚙ Instellingen</button>
+      </div>
+      <div id="test-result"></div>
+    </div>`;
+}
+
+// ── Main dashboard ───────────────────────────────────────────────────────────
+
+function renderDashboard(mod, state) {
+  const s   = mod.seasoftStatus   || {};
+  const cfg = mod.seasoftSettings || {};
+
+  const sia4Connected  = s.sia4 === true || s.sia4 === 'true';
+  const mqttConnected  = s.mqtt === true || s.mqtt === 'true';
+  const modbusEnabled  = s.modbus === true || s.modbus === 'true';
+  const panelType      = s.type  ? `${s.type} ${s.size}` : '—';
+  const firmware       = s.modversion || '—';
+  const uniqueId       = (s.moduniqueid || '').toUpperCase() || mod.seasoftIp ? (s.moduniqueid || '').toUpperCase() : '—';
+  const panelIp        = cfg.sia4?.galaxyip || '—';
+  const panelPort      = cfg.sia4?.galaxyport || '—';
+  const mqttServer     = cfg.mqtt?.server || '—';
+  const mqttPort       = cfg.mqtt?.port   || mod.mqttPort || 1883;
+  const autotopic      = cfg.mqtt?.autotopic || '—';
+  const baseTopic      = cfg.mqtt?.basetopic  || '—';
+  const autodiscovery  = s.autodiscovery ? 'Registered' : 'Unregistered';
+
+  const alarmParts     = ALARM_LABELS[state?.alarmState] || ['Onbekend', 'gr'];
+  const openZones      = Object.values(state?.zones || {}).filter(z => z.open || z.triggered);
+
+  return `
+    ${toolbar('Galaxy Flex Dashboard')}
+
+    <!-- Rij 1: 3 status kaartjes -->
+    <div class="mid-grid" style="margin-bottom:10px">
+
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">Alarm</div>
+        ${infoRow('Status', `<span id="patch-alarm">${badge(alarmParts[1], '', alarmParts[0])}</span>`)}
+        ${infoRow('Actieve zones', `<span id="patch-active-zones">${badge(openZones.length > 0 ? 'r' : 'g', '', `${openZones.length} / ${Object.keys(state?.zones || {}).length}`)}</span>`)}
+      </div>
+
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">Gateway</div>
+        ${infoRow('Uniek ID', `<span style="font-family:monospace;font-size:13px">${uniqueId || '—'}</span>`)}
+        ${infoRow('Seasoft versie', firmware)}
+        ${infoRow('SIA4', statusBadge(sia4Connected))}
+        ${infoRow('Paneel', panelType)}
+        ${infoRow('Firmware', s.version || '—')}
+      </div>
+
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">Paneel verbinding</div>
+        ${infoRow('Alarm IP', panelIp)}
+        ${infoRow('Alarm poort', panelPort)}
+        ${infoRow('Seasoft IP', mod.seasoftIp || '—')}
+        ${infoRow('SIA4 status', sia4Connected ? '🟢 Connected' : '🔴 Offline')}
+        ${infoRow('Panel type', panelType)}
+        ${infoRow('Firmware', s.version || firmware)}
+      </div>
+
+    </div>
+
+    <!-- Rij 2: 3 detail kaartjes -->
+    <div class="mid-grid">
+
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">MQTT</div>
+        ${infoRow('Status', mqttConnected ? '🟢 Connected' : '🔴 Offline')}
+        ${infoRow('Broker', `${mqttServer}:${mqttPort}`)}
+        ${infoRow('Base topic', baseTopic || '—')}
+        ${infoRow('Autodiscovery', s.autodiscovery ? `🟢 ${autodiscovery}` : `⚪ ${autodiscovery}`)}
+      </div>
+
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">Overige diensten</div>
+        ${infoRow('Modbus TCP', modbusEnabled ? '🟢 Listening' : '⚪ Uitgeschakeld')}
+        ${infoRow('Alarm receiver', s.arctcp || s.arcudp ? `🟢 TCP & UDP` : '⚪ —')}
+        ${infoRow('SIA ontvanger poort', mod.siaPort)}
+        ${infoRow('HomeBridge MQTT poort', mod.mqttPort || 1883)}
+      </div>
+
+      <div class="card">
+        <div class="label" style="margin-bottom:10px">Zones samenvatting</div>
+        ${['smoke','contact','motion'].map(type => {
+          const allZ = Object.values(state?.zones || {});
+          const count  = allZ.filter(z => z.type === type).length;
+          const active = allZ.filter(z => z.type === type && (z.open || z.triggered)).length;
+          const label  = type === 'smoke' ? '🔥 Rook' : type === 'contact' ? '🚪 Deur/raam' : '🏃 Beweging';
+          return count > 0 ? infoRow(label, badge(active > 0 ? 'r' : 'g', '', `${active} / ${count}`)) : '';
+        }).join('')}
+      </div>
+
+    </div>
+
+    <!-- Zones -->
+    ${Object.keys(state?.zones || {}).length > 0 ? `
+      <div class="sec">Zones</div>
+      <div class="zone-grid">
+        ${Object.entries(state.zones)
+          .sort(([a],[b]) => Number(a) - Number(b))
+          .map(([id, z]) => {
+            const active    = z.open || z.triggered;
+            const dotCls    = z.triggered ? 'dot-r' : z.open ? 'dot-o' : 'dot-g';
+            const statusTxt = z.triggered ? 'Alarm' : z.open ? 'Open' : 'OK';
+            return `
+              <div class="zone-item">
+                <div>
+                  <div class="zone-name">${ZONE_ICON[z.type] || ''} ${z.name}</div>
+                  <div class="zone-meta">${ZONE_LABEL[z.type] || z.type} · #${id}</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:7px">
+                  <span id="patch-zone-txt-${id}" style="font-size:12px;color:var(--muted)">${statusTxt}</span>
+                  <span id="patch-zone-dot-${id}" class="${dotCls}" style="width:10px;height:10px;border-radius:50%;background:currentColor;display:inline-block"></span>
+                </div>
+              </div>`;
+          }).join('')}
+      </div>
+    ` : ''}
+
+    <!-- Hue alarmlichten -->
+    <div class="sec" style="display:flex;justify-content:space-between;align-items:center">
+      <span>🔆 Hue alarmlichten</span>
+      <button class="btn btn-ghost" onclick="showHueEditor()" id="hue-toggle-btn">Configureren</button>
+    </div>
+    <div id="hue-editor"></div>
+
+    <div class="footer" id="patch-footer">Bijgewerkt: ${state?.lastUpdated ? new Date(state.lastUpdated).toLocaleTimeString('nl-NL') : '—'}</div>
+  `;
+}
+
+// renderSiaOnly is merged into renderSetup
+
+// ── Shared toolbar ──────────────────────────────────────────────────────────
+
+function toolbar(title, { previewActive = false } = {}) {
+  return `
+    <div class="toolbar">
+      <span class="toolbar-title">${title}</span>
+      <div class="toolbar-actions">
+        ${previewActive ? `
+          <button class="btn btn-ghost" onclick="togglePreview()">← Dashboard</button>` : ''}
+        <button class="btn btn-ghost" onclick="load()">↻</button>
+        <button class="btn btn-primary" onclick="homebridge.showSchemaForm()" title="Ga naar instellingen">⚙ Instellingen</button>
+      </div>
+    </div>`;
+}
+
+// ── Main load ────────────────────────────────────────────────────────────────
+
+let _previewSetup = false;
+function togglePreview() { _previewSetup = !_previewSetup; renderAll(); }
+
+let _lastMod = null, _lastState = null;
+
+async function load() {
+  try {
+    const [mod, state] = await Promise.all([
+      homebridge.request('/module-status'),
+      homebridge.request('/state'),
+    ]);
+    _lastMod = mod; _lastState = state;
+    renderAll();
+  } catch (e) {
+    document.getElementById('root').innerHTML =
+      `<p style="color:var(--red);padding:20px">Fout: ${e.message}</p>`;
+  }
+}
+
+function renderAll() {
+  const mod = _lastMod, state = _lastState;
+  if (!mod) return;
+
+  // If the Hue editor is open, only patch the live status elements
+  // instead of full re-render — preserves checkbox/input state
+  if (_hueEditorOpen && document.getElementById('hue-editor')) {
+    patchStatusOnly(mod, state);
+    return;
+  }
+
+  let html;
+  if (_previewSetup || !mod.configured) {
+    html = renderSetup(mod, state, { isPreview: _previewSetup && mod.configured });
+  } else if (!mod.seasoftStatus) {
+    html = renderUnreachable(mod);
+  } else {
+    html = renderDashboard(mod, state);
+  }
+
+  document.getElementById('root').innerHTML = html;
+}
+
+// Targeted update of status elements without touching the Hue editor
+function patchStatusOnly(mod, state) {
+  const s = mod.seasoftStatus || {};
+  const alarmParts = ALARM_LABELS[state?.alarmState] || ['Onbekend', 'gr'];
+
+  // Patch alarm badge
+  const alarmEl = document.getElementById('patch-alarm');
+  if (alarmEl) alarmEl.innerHTML = badge(alarmParts[1], '', alarmParts[0]);
+
+  // Patch actieve zones
+  const zonesEl = document.getElementById('patch-active-zones');
+  const openZones = Object.values(state?.zones || {}).filter(z => z.open || z.triggered);
+  if (zonesEl) zonesEl.innerHTML = badge(openZones.length > 0 ? 'r' : 'g', '', `${openZones.length} / ${Object.keys(state?.zones || {}).length}`);
+
+  // Patch zone dots
+  for (const [id, z] of Object.entries(state?.zones || {})) {
+    const dotEl = document.getElementById(`patch-zone-dot-${id}`);
+    const txtEl = document.getElementById(`patch-zone-txt-${id}`);
+    if (dotEl) {
+      dotEl.className = z.triggered ? 'dot-r' : z.open ? 'dot-o' : 'dot-g';
+      dotEl.style.cssText = 'width:10px;height:10px;border-radius:50%;background:currentColor;display:inline-block';
+    }
+    if (txtEl) txtEl.textContent = z.triggered ? 'Alarm' : z.open ? 'Open' : 'OK';
+  }
+
+  // Patch footer timestamp
+  const footerEl = document.getElementById('patch-footer');
+  if (footerEl && state?.lastUpdated) {
+    footerEl.textContent = `Bijgewerkt: ${new Date(state.lastUpdated).toLocaleTimeString('nl-NL')}`;
+  }
+}
+
+// ── Hue editor ──────────────────────────────────────────────────────────────
+
+const COLOR_OPTIONS_TEMP = [
+  { value: 'white_warm', label: '🌕 Warm wit',  mode: 'colorTemp', temp: 2700 },
+  { value: 'white_cool', label: '⬜ Koud wit',  mode: 'colorTemp', temp: 6500 },
+];
+const COLOR_OPTIONS_COLOR = [
+  { value: 'red',        label: '🔴 Rood',      mode: 'color', color: 'red' },
+  { value: 'orange',     label: '🟠 Oranje',    mode: 'color', color: 'orange' },
+  { value: 'blue',       label: '🔵 Blauw',     mode: 'color', color: 'blue' },
+  { value: 'green',      label: '🟢 Groen',     mode: 'color', color: 'green' },
+  { value: 'yellow',     label: '🟡 Geel',      mode: 'color', color: 'yellow' },
+  { value: 'purple',     label: '🟣 Paars',     mode: 'color', color: 'purple' },
+];
+// All options combined (for lookup in collectScene)
+const COLOR_OPTIONS = [...COLOR_OPTIONS_TEMP, ...COLOR_OPTIONS_COLOR];
+
+function getColorOptions(light) {
+  const opts = [];
+  if (light.supportsColorTemp) opts.push(...COLOR_OPTIONS_TEMP);
+  if (light.supportsColor)     opts.push(...COLOR_OPTIONS_COLOR);
+  return opts;
+}
+
+let _hueLights = [];
+let _hueScenes = { fire: [], intrusion: [] };
+let _hueEditorOpen = false;
+
+async function showHueEditor() {
+  _hueEditorOpen = !_hueEditorOpen;
+  const btn = document.getElementById('hue-toggle-btn');
+  const el  = document.getElementById('hue-editor');
+  if (!el) return;
+
+  if (!_hueEditorOpen) {
+    el.innerHTML = '';
+    if (btn) btn.textContent = 'Configureren';
+    return;
+  }
+  if (btn) btn.textContent = 'Sluiten';
+
+  // Load current plugin config to check if bridge is already set up
+  const pluginCfg = await homebridge.getPluginConfig().catch(() => [{}]);
+  const cfg = pluginCfg[0] || {};
+
+  // Always show the setup card first (contains IP field + pair button)
+  el.innerHTML = renderHuePairCard(cfg.hueBridgeIp || '', cfg.hueApiKey || '');
+
+  // If already paired, also load and show the scene editor
+  if (cfg.hueBridgeIp && cfg.hueApiKey) {
+    await hueLoadLights(cfg);
+  }
+}
+
+function renderHuePairCard(currentIp, currentKey) {
+  const isPaired = !!currentKey;
+  return `
+    <div class="setup-card" style="margin-bottom:12px">
+      <h3>🔆 Hue Bridge verbinding</h3>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+        <div style="flex:1;min-width:160px">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:4px">IP-adres Hue Bridge</div>
+          <input type="text" id="hue-bridge-ip" value="${currentIp}" placeholder="192.168.x.x"
+            style="width:100%;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:13px;font-family:monospace">
+        </div>
+        <button class="btn btn-ghost" onclick="hueDiscover()" title="Zoek Hue Bridges op het netwerk">🔍 Zoek Bridge</button>
+        <button class="btn btn-primary" onclick="huePair()">
+          ${isPaired ? '🔄 Opnieuw koppelen' : '🔗 Koppel Bridge'}
+        </button>
+      </div>
+      <div id="hue-discover-result" style="margin-bottom:8px"></div>
+      ${isPaired
+        ? `<div class="test-result test-ok">✓ Bridge gekoppeld — API key aanwezig</div>`
+        : `<p style="font-size:12px;color:var(--muted)">Druk op de knop op de Hue Bridge, vul het IP in en klik Koppel Bridge.</p>`
+      }
+      <div id="hue-pair-result" style="margin-top:8px"></div>
+    </div>
+    <div id="hue-scene-editor"></div>`;
+}
+
+let _pairingAbort = false;
+
+async function huePair() {
+  const ipEl = document.getElementById('hue-bridge-ip');
+  const ip   = ipEl?.value?.trim();
+  if (!ip) { alert('Vul eerst het IP-adres van de Hue Bridge in.'); return; }
+
+  const el = document.getElementById('hue-pair-result');
+  _pairingAbort = false;
+  let attempts = 0;
+  const maxAttempts = 20; // 60 seconden
+
+  const updateMsg = (attempt) => {
+    const remaining = maxAttempts - attempt;
+    if (el) el.innerHTML = `
+      <div class="test-result test-info" style="display:flex;justify-content:space-between;align-items:center">
+        <span>🔆 Druk nu op de grote knop op de Hue Bridge (${remaining * 3}s)</span>
+        <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px"
+          onclick="_pairingAbort=true;document.getElementById('hue-pair-result').innerHTML='<span style=color:var(--muted)>Geannuleerd.</span>'">✕</button>
+      </div>`;
+  };
+
+  updateMsg(0);
+
+  while (attempts < maxAttempts && !_pairingAbort) {
+    await new Promise(r => setTimeout(r, 3000));
+    if (_pairingAbort) return;
+    attempts++;
+    updateMsg(attempts);
+
+    const res = await homebridge.request('/hue/pair-attempt', { ip })
+      .catch(e => ({ ok: false, kind: 'error', error: e.message }));
+
+    if (res.ok) {
+      // Pair succeeded — now save IP + apiKey together
+      if (el) el.innerHTML = `<div class="test-result test-ok">✓ Gekoppeld! Instellingen opslaan…</div>`;
+      try {
+        const configs = await homebridge.getPluginConfig();
+        const cfg = configs[0] || {};
+        cfg.hueBridgeIp = ip;
+        cfg.hueApiKey   = res.apiKey;
+        await homebridge.updatePluginConfig([cfg]);
+        await homebridge.savePluginConfig();
+        if (el) el.innerHTML = `<div class="test-result test-ok">✓ Gekoppeld en opgeslagen! Lampen worden opgehaald…</div>`;
+        await hueLoadLights(cfg);
+      } catch (e) {
+        if (el) el.innerHTML = `<div class="test-result test-ok">✓ Gekoppeld! (opslaan mislukt: ${e.message} — vul API key handmatig in)</div>`;
+      }
+      return;
+    }
+
+    if (res.kind === 'error') {
+      if (el) el.innerHTML = `<div class="test-result test-err">✗ ${res.error}</div>`;
+      return;
+    }
+    // kind === 'link-not-pressed' → keep polling
+  }
+
+  if (!_pairingAbort) {
+    if (el) el.innerHTML = `<div class="test-result test-err">⏱ Time-out — knop niet ingedrukt binnen 60 seconden. Probeer opnieuw.</div>`;
+  }
+}
+
+async function hueDiscover() {
+  const el = document.getElementById('hue-discover-result');
+  if (el) el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Zoeken…</span>';
+  const res = await homebridge.request('/hue/discover').catch(e => ({ ok: false, error: e.message }));
+  if (!res.ok) {
+    if (el) el.innerHTML = `<div class="test-result test-err" style="margin-bottom:0">✗ ${res.error}</div>`;
+    return;
+  }
+  if (res.bridges.length === 1) {
+    // Exactly one bridge found — fill it in automatically
+    const ip = res.bridges[0].ip;
+    const ipEl = document.getElementById('hue-bridge-ip');
+    if (ipEl) ipEl.value = ip;
+    if (el) el.innerHTML = `<div class="test-result test-ok" style="margin-bottom:0">✓ Bridge gevonden: ${ip}</div>`;
+  } else {
+    // Multiple bridges — show as clickable list
+    const links = res.bridges.map(b =>
+      `<span onclick="document.getElementById('hue-bridge-ip').value='${b.ip}';document.getElementById('hue-discover-result').innerHTML='<div class=\\"test-result test-ok\\" style=\\"margin-bottom:0\\">✓ ${b.ip} geselecteerd</div>'"
+        style="cursor:pointer;text-decoration:underline;color:var(--blue);margin-right:10px">${b.ip}</span>`
+    ).join('');
+    if (el) el.innerHTML = `<div class="test-result test-info" style="margin-bottom:0">Gevonden: ${links}</div>`;
+  }
+}
+
+let _testSceneActive = { fire: false, intrusion: false };
+
+async function testScene(type) {
+  const btn = document.getElementById(`hue-test-btn-${type}`);
+  const el  = document.getElementById(`hue-test-result-${type}`);
+
+  if (_testSceneActive[type]) {
+    if (btn) { btn.textContent = '▶ Test scene'; btn.className = 'btn btn-ghost'; }
+    if (el)  el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Herstellen…</span>';
+    _testSceneActive[type] = false;
+    const res = await homebridge.request('/hue/restore-test').catch(e => ({ ok: false, error: e.message }));
+    if (el) el.innerHTML = res.ok
+      ? `<span class="badge g">✓ Verlichting hersteld</span>`
+      : `<span class="badge r">✗ ${res.error}</span>`;
+  } else {
+    // Collect current UI state — works even before saving
+    const scene = collectScene(type);
+    if (!scene.length) {
+      if (el) el.innerHTML = `<span class="badge r">Vink eerst lampen aan hierboven</span>`;
+      return;
+    }
+    if (btn) { btn.textContent = '⏹ Herstel verlichting'; btn.className = 'btn btn-primary'; }
+    if (el)  el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Scene activeren…</span>';
+    const res = await homebridge.request('/hue/test-scene', { type, scene })
+      .catch(e => ({ ok: false, error: e.message }));
+    if (res.ok) {
+      _testSceneActive[type] = true;
+      if (el) el.innerHTML = `<span class="badge o">Scene actief — klik opnieuw om te herstellen</span>`;
+    } else {
+      if (btn) { btn.textContent = '▶ Test scene'; btn.className = 'btn btn-ghost'; }
+      if (el)  el.innerHTML = `<span class="badge r">✗ ${res.error}</span>`;
+    }
+  }
+}
+
+async function hueLoadLights(cfg) {
+  const sceneEl = document.getElementById('hue-scene-editor');
+  if (!sceneEl) return;
+  sceneEl.innerHTML = `<div class="test-result test-info">Lampen ophalen van Hue Bridge…</div>`;
+
+  const res = await homebridge.request('/hue/lights').catch(e => ({ ok: false, error: e.message }));
+  if (!res.ok) {
+    sceneEl.innerHTML = `<div class="test-result test-err">✗ ${res.error}</div>`;
+    return;
+  }
+  _hueLights = res.lights;
+
+  // Read saved scenes from disk via server (not stale HomeBridge cache)
+  const savedCfg = await homebridge.request('/hue/get-scenes').catch(() => ({}));
+  _hueScenes.fire      = savedCfg.fireScene      || cfg.hueFireScene      || [];
+  _hueScenes.intrusion = savedCfg.intrusionScene || cfg.hueIntrusionScene || [];
+  const restoreMin     = savedCfg.restoreAfterMinutes || cfg.hueRestoreAfterMinutes || 15;
+
+  sceneEl.innerHTML = renderHueEditor(restoreMin);
+}
+
+function renderHueEditor(restoreMin) {
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:4px">
+      ${renderSceneEditor('fire', '🔥 Brandalarm', 'Geen knipperende lichten')}
+      ${renderSceneEditor('intrusion', '🚨 Inbraakalarm', 'Knipperen toegestaan')}
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-top:12px;flex-wrap:wrap">
+      <label style="font-size:13px;color:var(--muted)">Herstel na</label>
+      <input type="number" id="hue-restore-min" value="${restoreMin}" min="1" max="60"
+        style="width:60px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:4px 8px;font-size:13px">
+      <label style="font-size:13px;color:var(--muted)">minuten</label>
+      <button class="btn btn-primary" onclick="hueSaveScenes()">💾 Opslaan</button>
+      <div id="hue-save-result"></div>
+    </div>`;
+}
+
+function renderSceneEditor(type, title, note) {
+  const scene = _hueScenes[type] || [];
+  const selectedIds = scene.map(l => l.lightId);
+
+  const rows = _hueLights.map(light => {
+    const existing  = scene.find(l => l.lightId === light.id);
+    const checked   = !!existing;
+    const bri       = existing?.brightness ?? 100;
+    const blinkVal  = existing?.blink ?? 'none';
+    const colorOpts = getColorOptions(light);
+    const defaultColor = light.supportsColorTemp ? 'white_cool' : (light.supportsColor ? 'red' : null);
+    const colorVal  = existing
+      ? (existing.colorMode === 'colorTemp'
+          ? (existing.colorTemp >= 5000 ? 'white_cool' : 'white_warm')
+          : existing.color || 'red')
+      : defaultColor;
+    const showBlink  = type === 'intrusion';
+    const isOnOff    = !light.supportsDimming && !light.supportsColor && !light.supportsColorTemp;
+    const optsVis    = checked ? '' : 'opacity:.4;pointer-events:none';
+
+    const colorSelect = colorOpts.length ? `
+      <select id="hue-color-${type}-${light.id}" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 6px;font-size:12px">
+        ${colorOpts.map(c => `<option value="${c.value}" ${colorVal === c.value ? 'selected' : ''}>${c.label}</option>`).join('')}
+      </select>` : '';
+
+    const briSlider = light.supportsDimming ? `
+      <div style="display:flex;align-items:center;gap:4px">
+        <input type="range" id="hue-bri-${type}-${light.id}" min="1" max="100" value="${bri}"
+          style="width:80px;accent-color:var(--blue)" oninput="document.getElementById('hue-bri-val-${type}-${light.id}').textContent=this.value+'%'">
+        <span id="hue-bri-val-${type}-${light.id}" style="font-size:11px;color:var(--muted);min-width:34px">${bri}%</span>
+      </div>` : '';
+
+    const blinkSelect = showBlink && !isOnOff ? `
+      <select id="hue-blink-${type}-${light.id}" style="background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:3px 6px;font-size:12px">
+        <option value="none" ${blinkVal==='none'?'selected':''}>Statisch</option>
+        <option value="slow" ${blinkVal==='slow'?'selected':''}>Langzaam</option>
+        <option value="fast" ${blinkVal==='fast'?'selected':''}>Snel</option>
+      </select>` : '';
+
+    const onOffLabel = isOnOff ? `<span style="font-size:11px;color:var(--muted)">Aan/Uit</span>` : '';
+
+    return `
+      <div class="info-row" style="align-items:flex-start;padding:8px 0;gap:8px">
+        <input type="checkbox" id="hue-cb-${type}-${light.id}" ${checked ? 'checked' : ''}
+          onchange="hueToggleLight('${type}','${light.id}')"
+          style="margin-top:3px;flex-shrink:0;accent-color:var(--blue)">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:13px;font-weight:500">${light.name}</span>
+            <button class="btn btn-ghost" style="padding:2px 7px;font-size:11px" onclick="hueFlash('${light.id}')">💡</button>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;${optsVis}" id="hue-opts-${type}-${light.id}">
+            ${colorSelect}${briSlider}${blinkSelect}${onOffLabel}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="setup-card">
+      <h3 style="margin-bottom:4px">${title}</h3>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:10px">${note}</div>
+      <div style="max-height:320px;overflow-y:auto">${rows}</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+        <button class="btn btn-ghost" id="hue-test-btn-${type}" onclick="testScene('${type}')">▶ Test scene</button>
+        <div id="hue-test-result-${type}" style="font-size:12px"></div>
+      </div>
+    </div>`;
+}
+
+function hueToggleLight(type, lightId) {
+  const optsEl = document.getElementById(`hue-opts-${type}-${lightId}`);
+  const cb     = document.getElementById(`hue-cb-${type}-${lightId}`);
+  if (optsEl) {
+    optsEl.style.opacity = cb?.checked ? '1' : '.4';
+    optsEl.style.pointerEvents = cb?.checked ? 'auto' : 'none';
+  }
+}
+
+async function hueFlash(lightId) {
+  await homebridge.request('/hue/test-light', { lightId }).catch(() => {});
+}
+
+// Collect current UI state for one scene type
+function collectScene(type) {
+  const result = [];
+  for (const light of _hueLights) {
+    const cb = document.getElementById(`hue-cb-${type}-${light.id}`);
+    if (!cb?.checked) continue;
+
+    const isOnOff    = !light.supportsDimming && !light.supportsColor && !light.supportsColorTemp;
+    const colorKey   = document.getElementById(`hue-color-${type}-${light.id}`)?.value || 'white_cool';
+    const brightness = parseInt(document.getElementById(`hue-bri-${type}-${light.id}`)?.value || '100');
+    const blinkEl    = document.getElementById(`hue-blink-${type}-${light.id}`);
+    const blink      = blinkEl?.value || 'none';
+    const colorOpt   = COLOR_OPTIONS.find(c => c.value === colorKey);
+
+    result.push({
+      lightId:   light.id,
+      lightName: light.name,
+      brightness: isOnOff ? 100 : brightness,
+      colorMode:  colorOpt?.mode  || 'colorTemp',
+      colorTemp:  colorOpt?.temp,
+      color:      colorOpt?.color,
+      blink:      isOnOff ? 'none' : blink,
+      supportsDimming: light.supportsDimming,
+    });
+  }
+  return result;
+}
+
+async function hueSaveScenes() {
+  const el = document.getElementById('hue-save-result');
+  if (el) el.innerHTML = '<span style="font-size:12px;color:var(--muted)">Opslaan…</span>';
+
+  const fireScene      = collectScene('fire');
+  const intrusionScene = collectScene('intrusion');
+  const restoreMin     = parseInt(document.getElementById('hue-restore-min')?.value || '15');
+
+  try {
+    // Save via HomeBridge API so the config cache stays up to date
+    const configs = await homebridge.getPluginConfig();
+    const cfg = configs[0] || {};
+    cfg.hueFireScene            = fireScene;
+    cfg.hueIntrusionScene       = intrusionScene;
+    cfg.hueRestoreAfterMinutes  = restoreMin;
+    await homebridge.updatePluginConfig([cfg]);
+    await homebridge.savePluginConfig();
+
+    _hueScenes = { fire: fireScene, intrusion: intrusionScene };
+    if (el) el.innerHTML = `<span class="badge g">✓ Opgeslagen — herstart HomeBridge om te activeren</span>`;
+  } catch (e) {
+    if (el) el.innerHTML = `<span class="badge r">✗ ${e.message}</span>`;
+  }
+}
+
+// ── Auto-configure flow ──────────────────────────────────────────────────────
+
+async function startAutoConfigure() {
+  const el = document.getElementById('configure-result');
+  if (!el) return;
+  el.innerHTML = `<div class="test-result test-info">Ophalen huidige instellingen…</div>`;
+  try {
+    const preview = await homebridge.request('/configure-preview');
+    if (!preview.ok) {
+      el.innerHTML = `<div class="test-result test-err">✗ ${preview.error}</div>`;
+      return;
+    }
+    if (preview.noChangesNeeded) {
+      el.innerHTML = `<div class="test-result test-ok">✓ Seasoft module is al correct geconfigureerd.</div>`;
+      return;
+    }
+    const changesHtml = preview.changes.map(c =>
+      `<div class="change-row"><span>${c.key}</span><span><span class="change-from">${c.from}</span> → <span class="change-to">${c.to}</span></span></div>`
+    ).join('');
+    el.innerHTML = `
+      <div style="background:rgba(255,152,0,.08);border:1px solid rgba(255,152,0,.25);border-radius:8px;padding:12px;margin-top:4px">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px">De volgende wijzigingen worden toegepast op de Seasoft module:</div>
+        ${changesHtml}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-primary" onclick="applyAutoConfigure()">✓ Toepassen</button>
+          <button class="btn btn-ghost" onclick="document.getElementById('configure-result').innerHTML=''">Annuleren</button>
+        </div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="test-result test-err">✗ ${e.message}</div>`;
+  }
+}
+
+async function applyAutoConfigure() {
+  const el = document.getElementById('configure-result');
+  if (!el) return;
+  el.innerHTML = `<div class="test-result test-info">Bezig met configureren…</div>`;
+  try {
+    const result = await homebridge.request('/configure-apply');
+    if (result.ok) {
+      el.innerHTML = `<div class="test-result test-ok">✓ Klaar! Seasoft module geconfigureerd op broker ${result.brokerIp}:${result.brokerPort}.<br>
+        <span style="font-size:11px">De module verbindt nu automatisch. Herstart HomeBridge als de verbinding niet tot stand komt.</span></div>`;
+    } else {
+      el.innerHTML = `<div class="test-result test-err">✗ ${result.error}</div>`;
+    }
+  } catch (e) {
+    el.innerHTML = `<div class="test-result test-err">✗ ${e.message}</div>`;
+  }
+}
+
+async function testConn() {
+  const el = document.getElementById('test-result');
+  if (!el) return;
+  el.innerHTML = '<span style="color:var(--muted);font-size:13px">Verbinden…</span>';
+  try {
+    const r = await homebridge.request('/test-connection');
+    el.innerHTML = r.ok
+      ? `<div class="test-result test-ok">✓ Verbonden — ${r.panel} · ID: ${r.uniqueId} · fw ${r.version}</div>`
+      : `<div class="test-result test-err">✗ ${r.error}</div>`;
+  } catch (e) {
+    el.innerHTML = `<div class="test-result test-err">✗ ${e.message}</div>`;
+  }
+}
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>
