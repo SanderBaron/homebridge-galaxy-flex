@@ -89,10 +89,10 @@ export class AlarmLighting {
     this.stopAllBlinks();
     this.cancelRestoreTimer();
 
-    // Activeer lampen in batches van 10 om bridge niet te overbelasten
-    const BATCH = 10;
-    for (let i = 0; i < scene.length; i += BATCH) {
-      await Promise.allSettled(scene.slice(i, i + BATCH).map(cfg => this.activateLight(cfg)));
+    // Activeer lampen sequentieel met kleine pauze — Hue bridge heeft ~10 req/sec limiet
+    for (const cfg of scene) {
+      await this.activateLight(cfg);
+      await new Promise(r => setTimeout(r, 60)); // 60ms ≈ max 16/sec, ruim onder bridge limiet
     }
 
     // Auto-restore timer
