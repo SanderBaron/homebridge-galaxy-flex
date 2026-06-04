@@ -54,6 +54,12 @@ export class AlarmLighting {
       return;
     }
 
+    // Al actief of pending → niet opnieuw starten (debounce)
+    if (this.active || this.pending) {
+      this.log.debug(`Hue: scene al actief, sla nieuwe activering over`);
+      return;
+    }
+
     this.log.info(`Hue: activeer ${type} scène (${scene.length} lamp${scene.length !== 1 ? 'en' : ''})`);
     this.pending   = true;
     this.cancelled = false;
@@ -133,41 +139,33 @@ export class AlarmLighting {
   }
 
   private async activateLight(cfg: LightSceneConfig): Promise<void> {
-    const colorXy  = cfg.colorMode === 'color' && cfg.color
+    const colorXy   = cfg.colorMode === 'color' && cfg.color
       ? (COLORS[cfg.color] ?? COLORS['red'])
       : undefined;
     const colorTemp = cfg.colorMode === 'colorTemp' && cfg.colorTemp
       ? kelvinToMirek(cfg.colorTemp)
       : undefined;
 
-    // Try native signaling first (alternating between alarm color and dimmed version)
+    // Bouw het setLight request op basis van wat de lamp ondersteunt
+    const supportsColor   = !!(colorXy);
+    const supportsTemp    = !!(colorTemp);
+    // supportsDimming is opgeslagen in de scèneconfig vanuit de UI
+    const supportsDimming = (cfg as LightSceneConfig & { supportsDimming?: boolean }).supportsDimming !== false;
+
+    const setOpts: Parameters<typeof this.client.setLight>[1] = { on: true };
+    if (supportsDimming)              setOpts.brightness = cfg.brightness;
+    if (supportsColor && colorXy)     setOpts.colorXy    = colorXy;
+    else if (supportsTemp && colorTemp) setOpts.colorTemp = colorTemp;
+
+    await this.client.setLight(cfg.lightId, setOpts);
+
+    // Software blink (native signaling heeft bugs in Hue firmware, altijd software)
     if (cfg.blink !== 'none') {
-      const lights = await this.client.getLights().catch(() => []);
-      const light  = lights.find(l => l.id === cfg.lightId);
-
-      if (light?.supportsSignaling && colorXy) {
-        const dimColor = { x: colorXy.x * 0.6, y: colorXy.y * 0.6 }; // dimmed alternate
-        const durationMs = (this.config.restoreAfterMinutes ?? 15) * 60 * 1000;
-        await this.client.setLight(cfg.lightId, {
-          on: true, brightness: cfg.brightness,
-          colorXy,
-          signal: 'alternating',
-          signalColors: [colorXy, dimColor],
-          signalDurationMs: durationMs,
-        });
-        this.log.debug(`Hue: native signaling op ${cfg.lightName}`);
-        return;
-      }
-
-      // Fallback: software blink via interval
-      await this.client.setLight(cfg.lightId, { on: true, brightness: cfg.brightness, colorXy, colorTemp });
-      this.startBlink(cfg, colorXy, colorTemp);
-    } else {
-      await this.client.setLight(cfg.lightId, { on: true, brightness: cfg.brightness, colorXy, colorTemp });
+      this.startBlink(cfg, colorXy, colorTemp, supportsDimming);
     }
   }
 
-  private startBlink(cfg: LightSceneConfig, colorXy?: { x: number; y: number }, colorTemp?: number): void {
+  private startBlink(cfg: LightSceneConfig, colorXy?: { x: number; y: number }, colorTemp?: number, supportsDimming = true): void {
     const interval = BLINK_MS[cfg.blink];
     if (!interval) return;
 
@@ -179,7 +177,11 @@ export class AlarmLighting {
         if (currentlyOn) {
           await this.client.setLight(cfg.lightId, { on: false });
         } else {
-          await this.client.setLight(cfg.lightId, { on: true, brightness: cfg.brightness, colorXy, colorTemp });
+          const onOpts: Parameters<typeof this.client.setLight>[1] = { on: true };
+          if (supportsDimming) onOpts.brightness = cfg.brightness;
+          if (colorXy)         onOpts.colorXy    = colorXy;
+          else if (colorTemp)  onOpts.colorTemp  = colorTemp;
+          await this.client.setLight(cfg.lightId, onOpts);
         }
       } catch { /* bridge busy, skip this cycle */ }
     }, interval / 2);

@@ -82,12 +82,19 @@ export class HueClient {
   }
 
   async restore(snapshots: LightSnapshot[]): Promise<void> {
-    await Promise.all(snapshots.map(s => this.setLight(s.id, {
-      on:        s.on,
-      brightness: s.brightness,
-      colorTemp: s.colorTemp,
-      colorXy:   s.colorXy,
-    })));
+    // Sequentieel om de Hue bridge niet te overbelasten bij veel lampen
+    for (const s of snapshots) {
+      try {
+        await this.setLight(s.id, {
+          on:         s.on,
+          brightness: s.brightness,
+          colorTemp:  s.colorTemp,
+          colorXy:    s.colorXy,
+        });
+        // Kleine pauze tussen requests om rate limiting te voorkomen
+        await new Promise(r => setTimeout(r, 50));
+      } catch { /* ga door met de rest */ }
+    }
   }
 
   // ── Light control ────────────────────────────────────────────────────────────
