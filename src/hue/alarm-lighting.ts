@@ -37,6 +37,8 @@ export class AlarmLighting {
   private blinkTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
   private blinkState: Map<string, boolean> = new Map();
   private active = false;
+  private pending = false;   // true vanaf het moment onAlarm start, vóór snapshot klaar is
+  private cancelled = false; // true als onReset werd aangeroepen tijdens snapshot
 
   constructor(
     private readonly log: Logger,
@@ -53,8 +55,10 @@ export class AlarmLighting {
     }
 
     this.log.info(`Hue: activeer ${type} scène (${scene.length} lamp${scene.length !== 1 ? 'en' : ''})`);
+    this.pending   = true;
+    this.cancelled = false;
 
-    // Save snapshot of affected lights (only if not already active — don't overwrite original state)
+    // Save snapshot (only if not already active — don't overwrite original state)
     if (!this.active) {
       try {
         this.snapshot = await this.client.snapshot(scene.map(l => l.lightId));
@@ -65,7 +69,17 @@ export class AlarmLighting {
       }
     }
 
-    this.active = true;
+    // Alarm al geannuleerd terwijl snapshot bezig was → herstel direct
+    if (this.cancelled) {
+      this.log.info('Hue: alarm geannuleerd tijdens snapshot — herstel verlichting');
+      this.pending   = false;
+      this.cancelled = false;
+      await this.restore('reset');
+      return;
+    }
+
+    this.pending = false;
+    this.active  = true;
     this.stopAllBlinks();
     this.cancelRestoreTimer();
 
@@ -79,6 +93,12 @@ export class AlarmLighting {
   }
 
   async onReset(): Promise<void> {
+    if (this.pending) {
+      // Alarm is nog bezig met snapshot — markeer als geannuleerd
+      this.log.info('Hue: reset ontvangen tijdens snapshot — annuleer en herstel zodra snapshot klaar');
+      this.cancelled = true;
+      return;
+    }
     if (!this.active) return;
     await this.restore('reset');
   }
