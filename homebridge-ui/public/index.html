@@ -791,14 +791,16 @@ function collectScene(type) {
     const colorOpt   = COLOR_OPTIONS.find(c => c.value === colorKey);
 
     result.push({
-      lightId:   light.id,
-      lightName: light.name,
-      brightness: isOnOff ? 100 : brightness,
-      colorMode:  colorOpt?.mode  || 'colorTemp',
-      colorTemp:  colorOpt?.temp,
-      color:      colorOpt?.color,
-      blink:      isOnOff ? 'none' : blink,
-      supportsDimming: light.supportsDimming,
+      lightId:          light.id,
+      lightName:        light.name,
+      brightness:       isOnOff ? 100 : brightness,
+      colorMode:        colorOpt?.mode  || 'colorTemp',
+      colorTemp:        colorOpt?.temp,
+      color:            colorOpt?.color,
+      blink:            isOnOff ? 'none' : blink,
+      supportsDimming:  light.supportsDimming,
+      supportsColor:    light.supportsColor,
+      supportsColorTemp: light.supportsColorTemp,
     });
   }
   return result;

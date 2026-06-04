@@ -149,16 +149,16 @@ export class AlarmLighting {
       ? kelvinToMirek(cfg.colorTemp)
       : undefined;
 
-    // Bouw het setLight request op basis van wat de lamp ondersteunt
-    const supportsColor   = !!(colorXy);
-    const supportsTemp    = !!(colorTemp);
-    // supportsDimming is opgeslagen in de scèneconfig vanuit de UI
-    const supportsDimming = (cfg as LightSceneConfig & { supportsDimming?: boolean }).supportsDimming !== false;
+    // Bouw het setLight request op basis van wat de lamp ondersteunt (opgeslagen bij configuratie)
+    const ext             = cfg as LightSceneConfig & { supportsDimming?: boolean; supportsColor?: boolean; supportsColorTemp?: boolean };
+    const supportsDimming = ext.supportsDimming !== false;
+    const supportsColor   = ext.supportsColor   === true && !!(colorXy);
+    const supportsTemp    = ext.supportsColorTemp === true && !!(colorTemp);
 
     const setOpts: Parameters<typeof this.client.setLight>[1] = { on: true };
-    if (supportsDimming)              setOpts.brightness = cfg.brightness;
-    if (supportsColor && colorXy)     setOpts.colorXy    = colorXy;
-    else if (supportsTemp && colorTemp) setOpts.colorTemp = colorTemp;
+    if (supportsDimming)   setOpts.brightness = cfg.brightness;
+    if (supportsColor)     setOpts.colorXy    = colorXy;
+    else if (supportsTemp) setOpts.colorTemp  = colorTemp;
 
     await this.client.setLight(cfg.lightId, setOpts);
 
@@ -194,10 +194,8 @@ export class AlarmLighting {
   }
 
   private stopAllBlinks(): void {
-    for (const [id, timer] of this.blinkTimers) {
+    for (const timer of this.blinkTimers.values()) {
       clearInterval(timer);
-      // Stop any native signaling too
-      this.client.stopSignal(id).catch(() => {});
     }
     this.blinkTimers.clear();
     this.blinkState.clear();
