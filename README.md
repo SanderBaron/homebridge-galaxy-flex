@@ -1,8 +1,10 @@
 # homebridge-galaxy-flex
 
-**Breng je Honeywell Galaxy Flex alarmsysteem volledig in Apple HomeKit.**
+**HomeBridge Plugin om je Honeywell Galaxy Flex alarmsysteem volledig toe te voegen aan Apple HomeKit (Apple Home App).**
 
 Honeywell heeft de gratis pushnotificatiedienst voor de Galaxy Flex stopgezet. Deze HomeBridge plugin vervangt die dienst — en gaat verder. Alarm aan en uit via Siri, pushberichten bij brand of inbraak, live status van elke zone in de Apple Home app. Allemaal gratis, self-hosted, zonder abonnement.
+
+Via een directe API-koppeling met Philips Hue kan de plugin bij een alarm automatisch de verlichting in huis aansturen — denk aan alle lampen fel wit bij brand, of knipperende rode lampen bij inbraak. Na het resetten van het alarm keert de verlichting automatisch terug naar de oorspronkelijke staat.
 
 ---
 
@@ -126,7 +128,7 @@ Honeywell Galaxy Flex
 
 ## 🤝 Bijdragen
 
-Pull requests zijn welkom. Open een issue voor bugs of feature requests.
+Deze plugin is gebouwd op basis van mijn eigen wensen en hardware setup. Suggesties zijn altijd welkom, maar houd er rekening mee dat nieuwe features primair worden beoordeeld op basis van mijn eigen gebruik. Goede ideeën worden zeker overwogen!
 
 ---
 
