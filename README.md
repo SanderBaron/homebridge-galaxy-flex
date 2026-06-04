@@ -128,7 +128,7 @@ Honeywell Galaxy Flex
 
 ## 🤝 Bijdragen
 
-Deze plugin is gebouwd op basis van mijn eigen wensen en hardware setup. Suggesties zijn altijd welkom, maar houd er rekening mee dat nieuwe features primair worden beoordeeld op basis van mijn eigen gebruik. Goede ideeën worden zeker overwogen!
+Deze plugin is gebouwd op basis van mijn eigen wensen en hardware setup. Suggesties zijn altijd welkom, maar houd er rekening mee dat nieuwe features primair worden beoordeeld op basis van mijn eigen gebruik. Goede ideeën worden zeker overwogen! Laat me vooral weten of je de plugin goed kon gebruiken voor jouw situatie!
 
 ---
 
