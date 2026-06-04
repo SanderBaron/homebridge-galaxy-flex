@@ -72,6 +72,10 @@ export class SecuritySystemAccessory {
     client.sendGroupCommand(this.seasoftGroup, cmd);
   }
 
+  getCurrentState(): AlarmState {
+    return this.currentState;
+  }
+
   updateState(state: AlarmState): void {
     this.mqttStateReceived = true;
     this.applyState(state);

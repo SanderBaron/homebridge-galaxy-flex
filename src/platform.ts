@@ -176,9 +176,15 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     this.seasoftClient.on('zone', (ev: ZoneStateEvent) => this.handleZoneState(ev));
     this.seasoftClient.on('group', (ev: GroupStateEvent) => this.handleGroupState(ev, seasoftGroup));
     this.seasoftClient.on('zone-alarm', (ev: { zone: number }) => {
-      // Zone attr meldt alarm:1 — dit komt DIRECT wanneer het alarm triggert,
-      // niet pas bij deactiveren zoals de BA group event
-      this.log.info(`Zone ${ev.zone} in alarm — direct ALARM_TRIGGERED`);
+      // Zone attr meldt alarm:1 — alleen reageren als het alarm ingeschakeld is
+      const currentState = this.securitySystem?.getCurrentState();
+      const armed = currentState === AlarmState.AWAY_ARM
+                 || currentState === AlarmState.STAY_ARM
+                 || currentState === AlarmState.NIGHT_ARM
+                 || currentState === AlarmState.ALARM_TRIGGERED;
+      if (!armed) return;
+
+      this.log.info(`Zone ${ev.zone} in alarm (staat was ${currentState !== undefined ? AlarmState[currentState] : '?'}) — direct ALARM_TRIGGERED`);
       this.securitySystem?.updateState(AlarmState.ALARM_TRIGGERED);
       this.writeState({ alarmState: 'ALARM_TRIGGERED' });
       const alarmType = this.getAlarmTypeForZone(ev.zone);
