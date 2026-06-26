@@ -8,6 +8,7 @@ export interface HueLight {
   brightness: number;       // 0-100
   colorTemp?: number;       // mirek (153-500)
   colorXy?: { x: number; y: number };
+  supportsDimming: boolean;
   supportsColor: boolean;
   supportsColorTemp: boolean;
   supportsSignaling: boolean;
@@ -18,6 +19,7 @@ export interface LightSnapshot {
   name: string;
   on: boolean;
   brightness: number;
+  supportsDimming?: boolean;
   colorTemp?: number;
   colorXy?: { x: number; y: number };
 }
@@ -76,6 +78,7 @@ export class HueClient {
         name:      l.name,
         on:        l.on,
         brightness: l.brightness,
+        supportsDimming: l.supportsDimming,
         colorTemp: l.colorTemp,
         colorXy:   l.colorXy,
       }));
@@ -87,7 +90,10 @@ export class HueClient {
       try {
         await this.setLight(s.id, {
           on:         s.on,
-          brightness: s.brightness,
+          // brightness alleen sturen naar lampen die dimmen ondersteunen;
+          // anders weigert de Hue API met "(.dimming.brightness) is not supported".
+          // (supportsDimming kan ontbreken in oude on-disk snapshots → dan overslaan)
+          brightness: s.supportsDimming ? s.brightness : undefined,
           colorTemp:  s.colorTemp,
           colorXy:    s.colorXy,
         });
@@ -156,7 +162,8 @@ export class HueClient {
   private parseLight(l: Record<string, unknown>): HueLight {
     const metadata = l['metadata'] as Record<string, unknown> | undefined;
     const on       = (l['on']      as { on: boolean } | undefined)?.on ?? false;
-    const dim      = (l['dimming'] as { brightness: number } | undefined)?.brightness ?? 100;
+    const dimObj   = l['dimming']  as { brightness: number } | undefined;
+    const dim      = dimObj?.brightness ?? 100;
     const ct       = (l['color_temperature'] as { mirek: number; mirek_valid: boolean } | undefined);
     const col      = (l['color']   as { xy: { x: number; y: number } } | undefined);
     const sig      = (l['signaling'] as { status?: { signal_values?: string[] } } | undefined);
@@ -168,6 +175,7 @@ export class HueClient {
       brightness:          Math.round(dim),
       colorTemp:           ct?.mirek_valid ? ct.mirek : undefined,
       colorXy:             col?.xy,
+      supportsDimming:     !!dimObj,
       supportsColor:       !!col,
       supportsColorTemp:   !!ct,
       supportsSignaling:   !!(sig?.status?.signal_values?.includes('alternating')),

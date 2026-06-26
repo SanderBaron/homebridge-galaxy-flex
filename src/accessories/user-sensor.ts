@@ -1,12 +1,14 @@
 import { PlatformAccessory, Service } from 'homebridge';
 import { GalaxyFlexPlatform } from '../platform';
 
-// ContactSensor that momentarily opens when a user arms/disarms the alarm.
-// HomeKit automations can trigger on the "opens" event to send personalised
-// push notifications like "Sander heeft het alarm ingeschakeld".
+// ContactSensor that reflects whether this user last armed or disarmed the alarm.
+//   Armed   → CONTACT_DETECTED      (HomeKit "Dicht") → automatisering: "<naam> gesloten"
+//   Disarmed→ CONTACT_NOT_DETECTED  (HomeKit "Open")  → automatisering: "<naam> geopend"
+// HomeKit automations trigger on the state transition, so each arm/disarm by this
+// user fires exactly one personalised notification (no spurious duplicates).
 export class UserSensorAccessory {
   private readonly service: Service;
-  private resetTimer?: ReturnType<typeof setTimeout>;
+  private armed = false; // resting/unknown state = disarmed (Open)
 
   constructor(
     private readonly platform: GalaxyFlexPlatform,
@@ -26,25 +28,22 @@ export class UserSensorAccessory {
 
     this.service.setCharacteristic(Char.Name, name);
     this.service.getCharacteristic(Char.ContactSensorState)
-      .onGet(() => Char.ContactSensorState.CONTACT_DETECTED);
+      .onGet(() => this.contactState());
   }
 
-  // Briefly open the sensor (5s) so HomeKit automations can trigger
-  trigger(durationMs = 5000): void {
+  private contactState(): number {
     const { Characteristic: Char } = this.platform.api.hap;
+    return this.armed
+      ? Char.ContactSensorState.CONTACT_DETECTED      // Dicht = ingeschakeld
+      : Char.ContactSensorState.CONTACT_NOT_DETECTED; // Open  = uitgeschakeld
+  }
 
-    if (this.resetTimer) clearTimeout(this.resetTimer);
-
+  // Reflect whether this user armed (true) or disarmed (false) the alarm.
+  setArmed(armed: boolean): void {
+    this.armed = armed;
     this.service.updateCharacteristic(
-      Char.ContactSensorState,
-      Char.ContactSensorState.CONTACT_NOT_DETECTED,
+      this.platform.api.hap.Characteristic.ContactSensorState,
+      this.contactState(),
     );
-
-    this.resetTimer = setTimeout(() => {
-      this.service.updateCharacteristic(
-        Char.ContactSensorState,
-        Char.ContactSensorState.CONTACT_DETECTED,
-      );
-    }, durationMs);
   }
 }

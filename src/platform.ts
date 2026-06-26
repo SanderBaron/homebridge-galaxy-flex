@@ -17,6 +17,7 @@ import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, GROUP_STATE, GROUP_
 import { HueClient } from './hue/hue-client';
 import { AlarmLighting, AlarmLightingConfig } from './hue/alarm-lighting';
 import { UserSensorAccessory } from './accessories/user-sensor';
+import { FaultSensorAccessory } from './accessories/fault-sensor';
 
 export interface GalaxyFlexConfig extends PlatformConfig {
   // SIA receiver
@@ -73,6 +74,9 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private seasoftClient?: SeasoftMqttClient;
   private alarmLighting?: AlarmLighting;
   private readonly userSensors: Map<string, UserSensorAccessory> = new Map(); // userId → sensor
+  private faultSensor?: FaultSensorAccessory;
+  private readonly zonesInAlarm: Set<number> = new Set(); // zones die nu attr.alarm:1 melden
+  private faultTimer?: ReturnType<typeof setTimeout>;
   private readonly stateFilePath: string;
 
   constructor(log: Logger, config: PlatformConfig, api: API) {
@@ -102,6 +106,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       this.setupZoneSensor(zone);
     }
     this.setupUserSensors(config.users ?? []);
+    this.setupFaultSensor();
     this.removeStaleAccessories(zones, config.users ?? []);
 
     // Start SIA receiver alleen als Seasoft NIET actief is.
@@ -175,7 +180,15 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     });
     this.seasoftClient.on('zone', (ev: ZoneStateEvent) => this.handleZoneState(ev));
     this.seasoftClient.on('group', (ev: GroupStateEvent) => this.handleGroupState(ev, seasoftGroup));
-    this.seasoftClient.on('zone-alarm', (ev: { zone: number }) => {
+    this.seasoftClient.on('zone-alarm', (ev: { zone: number; active: boolean }) => {
+      // Houd bij welke zones nu in alarm staan — dit onderscheidt een echt alarm
+      // (inbraak/brand = zone-alarm) van een systeemstoring (group/alarm zónder zone).
+      if (!ev.active) {
+        this.zonesInAlarm.delete(ev.zone);
+        return;
+      }
+      this.zonesInAlarm.add(ev.zone);
+
       // Zone attr meldt alarm:1 — alleen reageren als het alarm ingeschakeld is
       const currentState = this.securitySystem?.getCurrentState();
       const armed = currentState === AlarmState.AWAY_ARM
@@ -184,6 +197,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
                  || currentState === AlarmState.ALARM_TRIGGERED;
       if (!armed) return;
 
+      this.clearFault(); // echt alarm → eventuele Storing-melding intrekken
       this.log.info(`Zone ${ev.zone} in alarm (staat was ${currentState !== undefined ? AlarmState[currentState] : '?'}) — direct ALARM_TRIGGERED`);
       this.securitySystem?.updateState(AlarmState.ALARM_TRIGGERED);
       this.writeState({ alarmState: 'ALARM_TRIGGERED' });
@@ -193,8 +207,10 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     this.seasoftClient.on('user-event', (ev: { userId: string; code: string; text: string }) => {
       const sensor = this.userSensors.get(ev.userId);
       if (sensor) {
-        this.log.info(`Alarm bediend door ${sensor.name} (${ev.code})`);
-        sensor.trigger();
+        const state = codeToAlarmState(ev.code);
+        const armed = state !== null && state !== AlarmState.DISARMED;
+        this.log.info(`Alarm ${armed ? 'ingeschakeld' : 'uitgeschakeld'} door ${sensor.name} (${ev.code})`);
+        sensor.setArmed(armed);
       }
     });
     this.seasoftClient.on('online', (info: { version: string }) => {
@@ -244,6 +260,18 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     }
     this.securitySystem = new SecuritySystemAccessory(this, accessory, group);
     this.log.info('SecuritySystem accessory ready');
+  }
+
+  private setupFaultSensor(): void {
+    const uuid = this.api.hap.uuid.generate('galaxy-flex-fault');
+    let accessory = this.accessories.get(uuid);
+    if (!accessory) {
+      accessory = new this.api.platformAccessory('Galaxy Flex Storing', uuid);
+      this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      this.accessories.set(uuid, accessory);
+    }
+    this.faultSensor = new FaultSensorAccessory(this, accessory, 'Galaxy Flex Storing');
+    this.log.info('Storing-melder ready');
   }
 
   private setupZoneSensor(zone: ZoneConfig): void {
@@ -298,6 +326,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private removeStaleAccessories(zones: ZoneConfig[], users: Array<{ id: string; name: string }> = []): void {
     const validUuids = new Set<string>();
     validUuids.add(this.api.hap.uuid.generate('galaxy-flex-security-system'));
+    validUuids.add(this.api.hap.uuid.generate('galaxy-flex-fault'));
     for (const z of zones) {
       validUuids.add(this.api.hap.uuid.generate(`galaxy-flex-zone-${z.zone}`));
     }
@@ -347,8 +376,23 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
         return;
     }
 
-    // Alarm topic heeft prioriteit boven state
-    if (ev.alarm) newState = AlarmState.ALARM_TRIGGERED;
+    // group/alarm-vlag actief? Onderscheid een ECHT alarm van een systeemstoring.
+    // Echt alarm (inbraak/brand) zet altijd een zone in alarm → die loopt via de
+    // zone-alarm-route die ALARM_TRIGGERED al heeft gezet. Een group/alarm ZONDER
+    // zone-alarm is een comms-/sabotagestoring → géén vals inbraakalarm, wél Storing.
+    if (ev.alarm) {
+      if (this.zonesInAlarm.size > 0
+          || this.securitySystem?.getCurrentState() === AlarmState.ALARM_TRIGGERED) {
+        newState = AlarmState.ALARM_TRIGGERED;
+        this.clearFault();
+      } else {
+        // Systeemstoring — debounce om een race (group/alarm net vóór zone/attr) op te vangen.
+        this.scheduleFault();
+        // newState blijft de echte groepsstatus → géén ALARM_TRIGGERED.
+      }
+    } else {
+      this.clearFault();
+    }
 
     this.securitySystem?.updateState(newState);
     this.writeState({ alarmState: AlarmState[newState] });
@@ -356,6 +400,34 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     // Hue: herstel verlichting bij deactivering alarm
     if (newState === AlarmState.DISARMED) {
       this.alarmLighting?.onReset().catch(err => this.log.error(`Hue restore: ${err}`));
+    }
+  }
+
+  // Zet de Storing-melder pas aan als er na een korte debounce nog steeds geen
+  // zone-alarm en geen ALARM_TRIGGERED is — zo voorkomen we een valse Storing
+  // tijdens een echt alarm waarbij group/alarm net vóór de zone/attr binnenkomt.
+  private scheduleFault(): void {
+    if (this.faultSensor?.isFault() || this.faultTimer) return;
+    this.faultTimer = setTimeout(() => {
+      this.faultTimer = undefined;
+      if (this.zonesInAlarm.size === 0
+          && this.securitySystem?.getCurrentState() !== AlarmState.ALARM_TRIGGERED) {
+        this.log.info('Systeemstoring actief (group/alarm zonder zone-alarm) — Storing-melder AAN');
+        this.faultSensor?.setFault(true);
+        this.writeState({});
+      }
+    }, 3000);
+  }
+
+  private clearFault(): void {
+    if (this.faultTimer) {
+      clearTimeout(this.faultTimer);
+      this.faultTimer = undefined;
+    }
+    if (this.faultSensor?.isFault()) {
+      this.log.info('Systeemstoring opgeheven — Storing-melder UIT');
+      this.faultSensor.setFault(false);
+      this.writeState({});
     }
   }
 

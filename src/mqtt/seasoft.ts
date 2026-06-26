@@ -42,6 +42,7 @@ export interface MqttAuth { username?: string; password?: string }
 export class SeasoftMqttClient extends EventEmitter {
   private client?: mqtt.MqttClient;
   private groupAlarmState: Map<string, boolean> = new Map();
+  private lastGroupState: Map<string, string> = new Map(); // laatst bekende group/state per groep
   private _version?: string;
   private readonly baseEsc: string;
 
@@ -108,15 +109,13 @@ export class SeasoftMqttClient extends EventEmitter {
       return;
     }
 
-    // Zone attr: alarm:1 betekent dat de zone actief in alarm is → direct melden
+    // Zone attr: alarm:1 = zone in alarm, alarm:0 = opgeheven. Beide doorgeven zodat
+    // de platform-laag kan bijhouden welke zones in alarm staan (storing vs inbraak).
     const zoneAttrMatch = topic.match(new RegExp(`^${this.baseEsc}/zone/(\\d+)/attr$`));
     if (zoneAttrMatch) {
       try {
         const attr = JSON.parse(payload) as { alarm?: number };
-        if (attr.alarm === 1) {
-          // Zoek de groep op die hiert bij hoort (standaard A1)
-          this.emit('zone-alarm', { zone: parseInt(zoneAttrMatch[1], 10) });
-        }
+        this.emit('zone-alarm', { zone: parseInt(zoneAttrMatch[1], 10), active: attr.alarm === 1 });
       } catch { /* malformed */ }
       return;
     }
@@ -124,6 +123,7 @@ export class SeasoftMqttClient extends EventEmitter {
     const groupStateMatch = topic.match(new RegExp(`^${this.baseEsc}/group/([^/]+)/state$`));
     if (groupStateMatch) {
       const group = groupStateMatch[1];
+      this.lastGroupState.set(group, payload);
       this.emit('group', { group, state: payload, alarm: this.groupAlarmState.get(group) ?? false } as GroupStateEvent);
       return;
     }
@@ -139,6 +139,12 @@ export class SeasoftMqttClient extends EventEmitter {
       // Emit direct zodra alarm activeert — niet wachten op group state update
       if (isAlarm && !wasAlarm) {
         this.emit('group', { group, state: GROUP_STATE.SET, alarm: true } as GroupStateEvent);
+      } else if (!isAlarm && wasAlarm) {
+        // Alarm heft op → HomeKit terugzetten naar de werkelijke groepsstatus.
+        // Zonder dit blijft de security system in ALARM_TRIGGERED hangen, want
+        // elk group/state-bericht erfde tot nu toe de oude alarm=true vlag mee.
+        const lastState = this.lastGroupState.get(group) ?? GROUP_STATE.NOT_READY;
+        this.emit('group', { group, state: lastState, alarm: false } as GroupStateEvent);
       }
       return;
     }
