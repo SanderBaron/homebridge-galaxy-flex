@@ -135,6 +135,53 @@
         }
       },
 
+      "notifyEnabled": {
+        "title": "iMessage meldingen inschakelen",
+        "type": "boolean",
+        "default": false,
+        "description": "Verstuur bij alarm en storing een verslag per iMessage via de Berichten-app op deze Mac. De eerste keer vraagt macOS om toestemming om Berichten aan te sturen."
+      },
+      "notifyRecipients": {
+        "title": "Ontvangers",
+        "type": "array",
+        "description": "Wie krijgt de meldingen? Let op: elke ontvanger moet al eens een iMessage-gesprek met dit account hebben gehad, anders weigert Berichten het bericht.",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Naam",
+              "type": "string",
+              "required": true
+            },
+            "phone": {
+              "title": "Telefoonnummer of Apple ID",
+              "type": "string",
+              "placeholder": "+31612345678",
+              "description": "Telefoonnummer met landcode, of het e-mailadres van het Apple ID.",
+              "required": true
+            }
+          }
+        }
+      },
+      "notifyOnAlarm": {
+        "title": "Melden bij alarm",
+        "type": "boolean",
+        "default": true,
+        "description": "Verslag bij inbraak- of brandalarm: welke zone, hoe laat, wie had ingeschakeld — en bij het uitschakelen een samenvatting met de oorzaak."
+      },
+      "notifyOnFault": {
+        "title": "Melden bij storing",
+        "type": "boolean",
+        "default": true,
+        "description": "Melding wanneer de Storing-melder aan of uit gaat (sabotage/communicatiestoring zonder zone-alarm)."
+      },
+      "notifyOnArmDisarm": {
+        "title": "Melden bij elke in-/uitschakeling",
+        "type": "boolean",
+        "default": false,
+        "description": "Ook een bericht bij elke gewone in- en uitschakeling, met de naam van de gebruiker."
+      },
+
       "zones": {
         "title": "Zones",
         "type": "array",
@@ -225,6 +272,27 @@
           "key": "hueRestoreAfterMinutes",
           "type": "number"
         }
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Meldingen (iMessage)",
+      "expandable": true,
+      "expanded": false,
+      "items": [
+        "notifyEnabled",
+        {
+          "key": "notifyRecipients",
+          "type": "array",
+          "title": "Ontvanger",
+          "items": [
+            "notifyRecipients[].name",
+            "notifyRecipients[].phone"
+          ]
+        },
+        "notifyOnAlarm",
+        "notifyOnFault",
+        "notifyOnArmDisarm"
       ]
     },
     {

@@ -18,6 +18,8 @@ import { HueClient } from './hue/hue-client';
 import { AlarmLighting, AlarmLightingConfig } from './hue/alarm-lighting';
 import { UserSensorAccessory } from './accessories/user-sensor';
 import { FaultSensorAccessory } from './accessories/fault-sensor';
+import { IMessageSender } from './notify/imessage';
+import { AlarmReporter } from './notify/alarm-reporter';
 
 export interface GalaxyFlexConfig extends PlatformConfig {
   // SIA receiver
@@ -50,6 +52,13 @@ export interface GalaxyFlexConfig extends PlatformConfig {
   hueRestoreAfterMinutes?: number;
   hueFireScene?: AlarmLightingConfig['fire'];
   hueIntrusionScene?: AlarmLightingConfig['intrusion'];
+
+  // iMessage meldingen
+  notifyEnabled?: boolean;
+  notifyRecipients?: Array<{ name: string; phone: string }>;
+  notifyOnAlarm?: boolean;
+  notifyOnFault?: boolean;
+  notifyOnArmDisarm?: boolean;
 }
 
 // State written to disk for the custom UI dashboard
@@ -73,6 +82,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private mqttBroker?: MqttBroker;
   private seasoftClient?: SeasoftMqttClient;
   private alarmLighting?: AlarmLighting;
+  private reporter?: AlarmReporter;
   private readonly userSensors: Map<string, UserSensorAccessory> = new Map(); // userId → sensor
   private faultSensor?: FaultSensorAccessory;
   private readonly zonesInAlarm: Set<number> = new Set(); // zones die nu attr.alarm:1 melden
@@ -141,6 +151,27 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       this.log.info('Hue alarm lighting ready');
     }
 
+    // iMessage meldingen via de Berichten-app op deze Mac
+    const notifyRecipients = (config.notifyRecipients ?? []).map(r => r.phone?.trim()).filter(Boolean) as string[];
+    if (config.notifyEnabled && notifyRecipients.length > 0) {
+      this.reporter = new AlarmReporter(this.log, new IMessageSender(this.log), notifyRecipients, {
+        onAlarm:     config.notifyOnAlarm     ?? true,
+        onFault:     config.notifyOnFault     ?? true,
+        onArmDisarm: config.notifyOnArmDisarm ?? false,
+      });
+      this.log.info(`iMessage meldingen actief (${notifyRecipients.length} ontvanger${notifyRecipients.length !== 1 ? 's' : ''})`);
+    } else if (config.notifyEnabled) {
+      this.log.warn('iMessage meldingen ingeschakeld maar geen ontvangers geconfigureerd');
+    }
+
+    // Testbericht: maak 'galaxy-flex-notify-test.txt' aan in de Homebridge-map
+    // en herstart — er gaat dan één testbericht naar alle ontvangers.
+    const notifyTestFile = path.join(this.api.user.storagePath(), 'galaxy-flex-notify-test.txt');
+    if (this.reporter && fs.existsSync(notifyTestFile)) {
+      fs.unlinkSync(notifyTestFile);
+      this.reporter.sendTest();
+    }
+
     if (!seasoftEnabled) {
       this.log.info('Seasoft module disabled — running in SIA-only mode');
       return;
@@ -203,6 +234,8 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       this.writeState({ alarmState: 'ALARM_TRIGGERED' });
       const alarmType = this.getAlarmTypeForZone(ev.zone);
       this.alarmLighting?.onAlarm(alarmType).catch(err => this.log.error(`Hue ${alarmType}: ${err}`));
+      const zoneName = this.zoneSensors.get(ev.zone)?.getStateForUi().name ?? `Zone ${ev.zone}`;
+      this.reporter?.onZoneAlarm(zoneName, alarmType);
     });
     this.seasoftClient.on('user-event', (ev: { userId: string; code: string; text: string }) => {
       const sensor = this.userSensors.get(ev.userId);
@@ -211,6 +244,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
         const armed = state !== null && state !== AlarmState.DISARMED;
         this.log.info(`Alarm ${armed ? 'ingeschakeld' : 'uitgeschakeld'} door ${sensor.name} (${ev.code})`);
         sensor.setArmed(armed);
+        this.reporter?.onUserEvent(sensor.name, armed);
       }
     });
     this.seasoftClient.on('online', (info: { version: string }) => {
@@ -394,12 +428,17 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       this.clearFault();
     }
 
+    const prevState = this.securitySystem?.getCurrentState();
     this.securitySystem?.updateState(newState);
     this.writeState({ alarmState: AlarmState[newState] });
 
     // Hue: herstel verlichting bij deactivering alarm
     if (newState === AlarmState.DISARMED) {
       this.alarmLighting?.onReset().catch(err => this.log.error(`Hue restore: ${err}`));
+      if (prevState === AlarmState.ALARM_TRIGGERED) {
+        this.zonesInAlarm.clear();
+        this.reporter?.onAlarmCleared();
+      }
     }
   }
 
@@ -414,6 +453,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
           && this.securitySystem?.getCurrentState() !== AlarmState.ALARM_TRIGGERED) {
         this.log.info('Systeemstoring actief (group/alarm zonder zone-alarm) — Storing-melder AAN');
         this.faultSensor?.setFault(true);
+        this.reporter?.onFault(true);
         this.writeState({});
       }
     }, 3000);
@@ -427,6 +467,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     if (this.faultSensor?.isFault()) {
       this.log.info('Systeemstoring opgeheven — Storing-melder UIT');
       this.faultSensor.setFault(false);
+      this.reporter?.onFault(false);
       this.writeState({});
     }
   }

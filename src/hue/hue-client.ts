@@ -84,9 +84,10 @@ export class HueClient {
       }));
   }
 
-  async restore(snapshots: LightSnapshot[]): Promise<void> {
+  async restore(snapshots: LightSnapshot[], isCancelled?: () => boolean): Promise<void> {
     // Sequentieel om de Hue bridge niet te overbelasten bij veel lampen
     for (const s of snapshots) {
+      if (isCancelled?.()) return; // ingehaald door een nieuw alarm
       try {
         await this.setLight(s.id, {
           on:         s.on,
