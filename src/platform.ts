@@ -233,19 +233,23 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       }
       this.zonesInAlarm.add(ev.zone);
 
-      // Zone attr meldt alarm:1 — alleen reageren als het alarm ingeschakeld is
+      // Zone attr meldt alarm:1. Inbraakzones kunnen alleen alarm geven als het
+      // systeem ingeschakeld is; een zone-alarm in uitgeschakelde stand is dan
+      // een sabotage-/storingsgeval dat via de group/alarm-route loopt.
+      // Rookmelders zijn 24-uurs brandzones: die geven ALTIJD alarm, ook als
+      // het systeem uit staat — brandscène en verslag moeten dan gewoon komen.
       const currentState = this.securitySystem?.getCurrentState();
       const armed = currentState === AlarmState.AWAY_ARM
                  || currentState === AlarmState.STAY_ARM
                  || currentState === AlarmState.NIGHT_ARM
                  || currentState === AlarmState.ALARM_TRIGGERED;
-      if (!armed) return;
+      const alarmType = this.getAlarmTypeForZone(ev.zone);
+      if (!armed && alarmType !== 'fire') return;
 
       this.clearFault(); // echt alarm → eventuele Storing-melding intrekken
-      this.log.info(`Zone ${ev.zone} in alarm (staat was ${currentState !== undefined ? AlarmState[currentState] : '?'}) — direct ALARM_TRIGGERED`);
+      this.log.info(`Zone ${ev.zone} in ${alarmType === 'fire' ? 'BRAND' : ''}alarm (staat was ${currentState !== undefined ? AlarmState[currentState] : '?'}) — direct ALARM_TRIGGERED`);
       this.securitySystem?.updateState(AlarmState.ALARM_TRIGGERED);
       this.writeState({ alarmState: 'ALARM_TRIGGERED' });
-      const alarmType = this.getAlarmTypeForZone(ev.zone);
       this.alarmLighting?.onAlarm(alarmType).catch(err => this.log.error(`Hue ${alarmType}: ${err}`));
       const zoneName = this.zoneSensors.get(ev.zone)?.getStateForUi().name ?? `Zone ${ev.zone}`;
       this.reporter?.onZoneAlarm(zoneName, alarmType);
