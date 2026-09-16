@@ -98,65 +98,91 @@ export class AlarmLighting {
 
     this.log.info(`Hue: activeer ${type} scène (${scene.length} lamp${scene.length !== 1 ? 'en' : ''})`);
 
-    // Snapshot van de oorspronkelijke staat. Ligt er nog een snapshot van een
-    // niet-afgeronde herstel-cyclus (alarm → reset → alarm binnen de controle-
-    // periode), dan is DIE de echte oorspronkelijke staat — niet overschrijven.
-    if (this.snapshot.length === 0) {
-      try {
-        this.snapshot = await this.client.snapshot(scene.map(l => l.lightId));
-        fs.writeFileSync(this.snapshotFile, JSON.stringify(this.snapshot, null, 2));
-        this.log.debug(`Hue: snapshot opgeslagen (${this.snapshot.length} lampen)`);
-      } catch (err) {
-        this.log.warn(`Hue: snapshot mislukt — ${err}`);
+    // Wat hier ook misgaat: de activatie mag nooit "half" blijven hangen. Vóór
+    // deze try/finally liet één exception in de loop hieronder `activating` op
+    // true staan zonder hersteltimer — onReset deed dan niets meer en elk volgend
+    // alarm werd voor Hue genegeerd tot een herstart.
+    try {
+      // Snapshot van de oorspronkelijke staat. Ligt er nog een snapshot van een
+      // niet-afgeronde herstel-cyclus (alarm → reset → alarm binnen de controle-
+      // periode), dan is DIE de echte oorspronkelijke staat — niet overschrijven.
+      if (this.snapshot.length === 0) {
+        try {
+          this.snapshot = await this.client.snapshot(scene.map(l => l.lightId));
+          fs.writeFileSync(this.snapshotFile, JSON.stringify(this.snapshot, null, 2));
+          this.log.debug(`Hue: snapshot opgeslagen (${this.snapshot.length} lampen)`);
+        } catch (err) {
+          this.log.warn(`Hue: snapshot mislukt — ${err}`);
+        }
+      } else {
+        this.log.info('Hue: bestaande snapshot hergebruikt (vorig herstel nog niet afgerond)');
       }
-    } else {
-      this.log.info('Hue: bestaande snapshot hergebruikt (vorig herstel nog niet afgerond)');
-    }
 
-    // Reset binnengekomen terwijl de snapshot liep → niets activeren, herstellen
-    if (this.isStale(gen)) {
-      this.log.info('Hue: alarm gereset tijdens snapshot — herstel verlichting');
-      this.activating = false;
-      await this.restore('reset');
-      return;
-    }
-
-    // Fase 1: activeer alle lampen (kleur + helderheid) — blinktimers nog NIET
-    // starten (die eten bridge-quota op terwijl de activatieloop nog bezig is).
-    // Na elke lamp checken of een reset ons heeft ingehaald: de loop duurt bij
-    // veel lampen meerdere seconden en een snelle reset (per ongeluk alarm)
-    // valt daar precies in.
-    type BlinkParam = { cfg: LightSceneConfig; colorXy?: { x: number; y: number }; colorTemp?: number; supportsDimming: boolean };
-    const blinkQueue: BlinkParam[] = [];
-
-    for (const cfg of scene) {
+      // Reset binnengekomen terwijl de snapshot liep → niets activeren, herstellen
       if (this.isStale(gen)) {
-        this.log.info('Hue: activatie afgebroken door reset — herstel verlichting');
+        this.log.info('Hue: alarm gereset tijdens snapshot — herstel verlichting');
         this.activating = false;
         await this.restore('reset');
         return;
       }
-      const bp = await this.activateLight(cfg);
-      if (bp) blinkQueue.push({ cfg, ...bp });
-      await new Promise(r => setTimeout(r, 100)); // 100ms = max 10/sec, gelijk aan bridge limiet
+
+      // Fase 1: activeer alle lampen (kleur + helderheid) — blinktimers nog NIET
+      // starten (die eten bridge-quota op terwijl de activatieloop nog bezig is).
+      // Na elke lamp checken of een reset ons heeft ingehaald: de loop duurt bij
+      // veel lampen meerdere seconden en een snelle reset (per ongeluk alarm)
+      // valt daar precies in. Een lamp die faalt (netwerkfout, raar antwoord van
+      // de bridge) wordt overgeslagen — de rest moet gewoon aan.
+      type BlinkParam = { cfg: LightSceneConfig; colorXy?: { x: number; y: number }; colorTemp?: number; supportsDimming: boolean };
+      const blinkQueue: BlinkParam[] = [];
+      let failed = 0;
+
+      for (const cfg of scene) {
+        if (this.isStale(gen)) {
+          this.log.info('Hue: activatie afgebroken door reset — herstel verlichting');
+          this.activating = false;
+          await this.restore('reset');
+          return;
+        }
+        try {
+          const bp = await this.activateLight(cfg);
+          if (bp) blinkQueue.push({ cfg, ...bp });
+        } catch (err) {
+          failed++;
+          this.log.warn(`Hue: ${cfg.lightName} activeren mislukt — ${err}`);
+        }
+        await new Promise(r => setTimeout(r, 100)); // 100ms = max 10/sec, gelijk aan bridge limiet
+      }
+      if (failed) this.log.warn(`Hue: ${failed} van ${scene.length} lampen niet geactiveerd`);
+
+      this.activating = false;
+      if (this.isStale(gen)) {
+        this.log.info('Hue: activatie afgebroken door reset — herstel verlichting');
+        await this.restore('reset');
+        return;
+      }
+
+      // Fase 2: start blinktimers pas als alle lampen actief zijn
+      for (const bp of blinkQueue) {
+        this.startBlink(bp.cfg, gen, bp.colorXy, bp.colorTemp, bp.supportsDimming);
+      }
+    } catch (err) {
+      this.log.error(`Hue: activatie onverwacht mislukt — ${err}`);
+      this.activating = false;
+      if (this.isStale(gen)) {
+        await this.restore('reset');
+        return;
+      }
+    } finally {
+      this.activating = false;
     }
 
-    this.activating = false;
-    if (this.isStale(gen)) {
-      this.log.info('Hue: activatie afgebroken door reset — herstel verlichting');
-      await this.restore('reset');
-      return;
+    // Auto-restore timer — altijd gezet zolang de scène actief is, ook als de
+    // activatie maar deels lukte: de lampen mogen nooit in alarmstand achterblijven.
+    if (this.active && !this.isStale(gen)) {
+      const minutes = this.config.restoreAfterMinutes ?? 15;
+      this.restoreTimer = setTimeout(() => this.restore('timer'), minutes * 60 * 1000);
+      this.log.info(`Hue: automatisch herstel over ${minutes} minuten`);
     }
-
-    // Fase 2: start blinktimers pas als alle lampen actief zijn
-    for (const bp of blinkQueue) {
-      this.startBlink(bp.cfg, gen, bp.colorXy, bp.colorTemp, bp.supportsDimming);
-    }
-
-    // Auto-restore timer
-    const minutes = this.config.restoreAfterMinutes ?? 15;
-    this.restoreTimer = setTimeout(() => this.restore('timer'), minutes * 60 * 1000);
-    this.log.info(`Hue: automatisch herstel over ${minutes} minuten`);
   }
 
   async onReset(): Promise<void> {

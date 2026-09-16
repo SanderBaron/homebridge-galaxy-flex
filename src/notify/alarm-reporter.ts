@@ -95,6 +95,16 @@ export class AlarmReporter {
     this.stuur(`✉️ Testbericht van homebridge-galaxy-flex (${tijd(new Date())})\nAls je dit leest werkt de iMessage-koppeling.`);
   }
 
+  // Het paneel accepteerde de RESET na uitschakelen vanuit HomeKit niet.
+  onPanelResetFailed(): void {
+    if (!this.opts.onAlarm) return;
+    this.stuur([
+      '⚠️ Paneel wacht nog op reset',
+      'De reset vanuit HomeKit is niet geaccepteerd. Voer je code in op het bediendeel.',
+      `Tijd: ${tijd(new Date())}`,
+    ].join('\n'));
+  }
+
   // Storing-melder aan/uit.
   onFault(active: boolean): void {
     if (!this.opts.onFault) return;

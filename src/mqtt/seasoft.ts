@@ -30,7 +30,12 @@ export const GROUP_CMD = {
 } as const;
 
 export interface ZoneStateEvent  { zone: number; active: boolean }
-export interface GroupStateEvent { group: string; state: string; alarm: boolean }
+export interface GroupStateEvent {
+  group: string;
+  state: string;          // GROUP_STATE-waarde
+  alarm: boolean;         // alarm-vlag 1 óf 2 actief
+  resetRequired: boolean; // alarm-vlag 2: alarm voorbij, paneel wacht op reset
+}
 export interface UserEvent {
   userId: string;   // e.g. "001"
   code: string;     // SIA code: CL, OP, CG, etc.
@@ -41,7 +46,7 @@ export interface MqttAuth { username?: string; password?: string }
 
 export class SeasoftMqttClient extends EventEmitter {
   private client?: mqtt.MqttClient;
-  private groupAlarmState: Map<string, boolean> = new Map();
+  private groupAlarmState: Map<string, string> = new Map(); // ruwe group/alarm-waarde per groep (0/1/2)
   private lastGroupState: Map<string, string> = new Map(); // laatst bekende group/state per groep
   private _version?: string;
   private readonly baseEsc: string;
@@ -102,12 +107,24 @@ export class SeasoftMqttClient extends EventEmitter {
     }
   }
 
+  private alarmFlags(group: string): { alarm: boolean; resetRequired: boolean } {
+    const raw = this.groupAlarmState.get(group) ?? GROUP_ALARM.NORMAL;
+    return {
+      alarm:         raw === GROUP_ALARM.ALARM || raw === GROUP_ALARM.RESET_REQUIRED,
+      resetRequired: raw === GROUP_ALARM.RESET_REQUIRED,
+    };
+  }
+
   private handleMessage(topic: string, payload: string): void {
     const zoneMatch = topic.match(new RegExp(`^${this.baseEsc}/zone/(\\d+)/state$`));
     if (zoneMatch) {
       this.emit('zone', { zone: parseInt(zoneMatch[1], 10), active: payload === '1' } as ZoneStateEvent);
       return;
     }
+
+    // Alles behalve zone-open/dicht ruw meeloggen (debug → eigen logbestand):
+    // dit is het bewijsmateriaal bij een volgend incident.
+    this.log.debug(`MQTT ${topic.slice(this.baseTopic.length + this.uniqueId.length + 2)} = ${payload}`);
 
     // Zone attr: alarm:1 = zone in alarm, alarm:0 = opgeheven. Beide doorgeven zodat
     // de platform-laag kan bijhouden welke zones in alarm staan (storing vs inbraak).
@@ -124,28 +141,29 @@ export class SeasoftMqttClient extends EventEmitter {
     if (groupStateMatch) {
       const group = groupStateMatch[1];
       this.lastGroupState.set(group, payload);
-      this.emit('group', { group, state: payload, alarm: this.groupAlarmState.get(group) ?? false } as GroupStateEvent);
+      this.emit('group', { group, state: payload, ...this.alarmFlags(group) } as GroupStateEvent);
       return;
     }
 
     const groupAlarmMatch = topic.match(new RegExp(`^${this.baseEsc}/group/([^/]+)/alarm$`));
     if (groupAlarmMatch) {
-      const group    = groupAlarmMatch[1];
-      const wasAlarm = this.groupAlarmState.get(group) ?? false;
-      // alarm=1 (alarm actief) en alarm=2 (reset required) zijn beide alarm-actief
-      const isAlarm  = payload === GROUP_ALARM.ALARM || payload === GROUP_ALARM.RESET_REQUIRED;
-      this.groupAlarmState.set(group, isAlarm);
+      const group   = groupAlarmMatch[1];
+      const wasRaw  = this.groupAlarmState.get(group) ?? GROUP_ALARM.NORMAL;
+      if (payload === wasRaw) return;
+      this.groupAlarmState.set(group, payload);
+      const flags = this.alarmFlags(group);
 
-      // Emit direct zodra alarm activeert — niet wachten op group state update
-      if (isAlarm && !wasAlarm) {
-        this.emit('group', { group, state: GROUP_STATE.SET, alarm: true } as GroupStateEvent);
-      } else if (!isAlarm && wasAlarm) {
-        // Alarm heft op → HomeKit terugzetten naar de werkelijke groepsstatus.
-        // Zonder dit blijft de security system in ALARM_TRIGGERED hangen, want
-        // elk group/state-bericht erfde tot nu toe de oude alarm=true vlag mee.
-        const lastState = this.lastGroupState.get(group) ?? GROUP_STATE.NOT_READY;
-        this.emit('group', { group, state: lastState, alarm: false } as GroupStateEvent);
-      }
+      // Elke wissel van de vlag (0→1, 1→2, 2→0, …) direct doorgeven met de laatst
+      // bekende groepsstatus — niet wachten op een group/state-bericht.
+      //  - alarm gaat AAN en de groepsstatus is nog onbekend (net gestart): neem
+      //    SET aan, want een alarm hoort bij een ingeschakeld paneel;
+      //  - alarm gaat UIT: terug naar de werkelijke groepsstatus, anders blijft
+      //    HomeKit in ALARM_TRIGGERED hangen;
+      //  - 1→2 (alarm voorbij, reset gevraagd): de platform-laag beslist op basis
+      //    van de groepsstatus of dat DISARMED is (paneel uit) of nog ALARM (paneel aan).
+      const fallback  = flags.alarm ? GROUP_STATE.SET : GROUP_STATE.NOT_READY;
+      const lastState = this.lastGroupState.get(group) ?? fallback;
+      this.emit('group', { group, state: lastState, ...flags } as GroupStateEvent);
       return;
     }
 

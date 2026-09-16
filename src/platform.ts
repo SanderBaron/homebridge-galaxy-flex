@@ -1,7 +1,7 @@
 import {
   API,
   DynamicPlatformPlugin,
-  Logger,
+  Logging,
   PlatformAccessory,
   PlatformConfig,
 } from 'homebridge';
@@ -13,7 +13,8 @@ import { SiaMessage, AlarmState, codeToAlarmState, isAlarmCode, isRestoreCode } 
 import { SecuritySystemAccessory } from './accessories/security-system';
 import { ZoneSensorAccessory, ZoneConfig } from './accessories/zone-sensor';
 import { MqttBroker } from './mqtt/broker';
-import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, GROUP_STATE, GROUP_ALARM } from './mqtt/seasoft';
+import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, GROUP_STATE, GROUP_CMD } from './mqtt/seasoft';
+import { FileLog, withFileLog } from './file-log';
 import { HueClient } from './hue/hue-client';
 import { AlarmLighting, AlarmLightingConfig } from './hue/alarm-lighting';
 import { UserSensorAccessory } from './accessories/user-sensor';
@@ -72,7 +73,7 @@ export interface PluginState {
 }
 
 export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
-  public readonly log: Logger;
+  public readonly log: Logging;
   public readonly api: API;
 
   private readonly accessories: Map<string, PlatformAccessory> = new Map();
@@ -81,6 +82,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private siaServer?: SiaServer;
   private mqttBroker?: MqttBroker;
   private seasoftClient?: SeasoftMqttClient;
+  private seasoftGroup = 'A1';
   private alarmLighting?: AlarmLighting;
   private reporter?: AlarmReporter;
   private readonly userSensors: Map<string, UserSensorAccessory> = new Map(); // userId → sensor
@@ -88,12 +90,22 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private readonly zonesInAlarm: Set<number> = new Set(); // zones die nu attr.alarm:1 melden
   private faultTimer?: ReturnType<typeof setTimeout>;
   private readonly stateFilePath: string;
+  private readonly fileLog: FileLog;
 
-  constructor(log: Logger, config: PlatformConfig, api: API) {
-    this.log = log;
+  // Paneel-reset na uitschakelen vanuit HomeKit (zie requestPanelReset)
+  private panelUnsetAwaitingReset = false;             // paneel uit, alarm-vlag 2 ("reset gevraagd")
+  private resetPendingTimer?: ReturnType<typeof setTimeout>; // HomeKit-uitschakeling wacht op paneel
+  private resetVerifyTimer?: ReturnType<typeof setTimeout>;  // controle of het paneel de RESET slikte
+
+  constructor(log: Logging, config: PlatformConfig, api: API) {
+    // Alles wat de plugin logt gaat ook naar een eigen bestand (72u, ruimt zichzelf op)
+    this.fileLog = new FileLog(path.join(api.user.storagePath(), 'galaxy-flex.log'));
+    this.log = withFileLog(log, this.fileLog);
     this.api = api;
     this.stateFilePath = path.join(api.user.storagePath(), 'galaxy-flex-state.json');
+    this.log.info(`Eigen logbestand: ${this.fileLog.path} (72 uur bewaard)`);
     this.api.on('didFinishLaunching', () => this.init(config as GalaxyFlexConfig));
+    this.api.on('shutdown', () => this.fileLog.stop());
   }
 
   configureAccessory(accessory: PlatformAccessory): void {
@@ -106,6 +118,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     const zones: ZoneConfig[] = config.zones ?? [];
     const seasoftEnabled = config.seasoftEnabled ?? false;
     const seasoftGroup = config.seasoftGroup || 'A1';
+    this.seasoftGroup = seasoftGroup;
     const seasoftBaseTopic = config.seasoftBaseTopic || 'galaxy';
     const seasoftUniqueId = config.seasoftUniqueId || '';
     const mqttPort = config.mqttPort ?? 1883;
@@ -410,11 +423,22 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
         return;
     }
 
+    const panelUnset = newState === AlarmState.DISARMED;
+
     // group/alarm-vlag actief? Onderscheid een ECHT alarm van een systeemstoring.
     // Echt alarm (inbraak/brand) zet altijd een zone in alarm → die loopt via de
     // zone-alarm-route die ALARM_TRIGGERED al heeft gezet. Een group/alarm ZONDER
     // zone-alarm is een comms-/sabotagestoring → géén vals inbraakalarm, wél Storing.
-    if (ev.alarm) {
+    if (ev.alarm && ev.resetRequired && panelUnset) {
+      // Paneel is UITGESCHAKELD en het alarm is voorbij; alleen het alarmgeheugen
+      // staat nog open (bediendeel: "reset gevraagd", alarm-vlag 2). Voor HomeKit
+      // is dat gewoon DISARMED. Vóór deze regel bleef HomeKit hier in ALARM hangen
+      // (16-9-2026: om 14:19 uitgeschakeld via Home-app, pas om 19:17 na code op
+      // het bediendeel uit alarm; lampen en verslag kwamen ook pas toen).
+      this.clearFault();
+      this.onPanelUnsetAwaitingReset();
+    } else if (ev.alarm) {
+      this.panelUnsetAwaitingReset = false;
       if (this.zonesInAlarm.size > 0
           || this.securitySystem?.getCurrentState() === AlarmState.ALARM_TRIGGERED) {
         newState = AlarmState.ALARM_TRIGGERED;
@@ -426,6 +450,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       }
     } else {
       this.clearFault();
+      this.onPanelResetCleared();
     }
 
     const prevState = this.securitySystem?.getCurrentState();
@@ -439,6 +464,69 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
         this.zonesInAlarm.clear();
         this.reporter?.onAlarmCleared();
       }
+    }
+  }
+
+  // ── Paneel-reset na uitschakelen vanuit HomeKit ──────────────────────────────
+  //
+  // Uitschakelen vanuit HomeKit gaat als UNSET naar het paneel (gebruiker "Remote").
+  // Het paneel schakelt dan uit, maar laat na een alarm het alarmgeheugen staan
+  // tot iemand een reset doet — op het bediendeel blijft "reset gevraagd" staan.
+  // Wij sturen die RESET zelf zodra het paneel "uitgeschakeld + reset gevraagd"
+  // meldt, en controleren of het paneel 'm accepteert.
+
+  isPanelAwaitingReset(): boolean {
+    return this.panelUnsetAwaitingReset;
+  }
+
+  requestPanelReset(): void {
+    this.cancelResetPending();
+    if (this.panelUnsetAwaitingReset) {
+      this.sendPanelReset();
+      return;
+    }
+    this.log.info('Uitschakelen vanuit HomeKit tijdens alarm — RESET volgt zodra het paneel "uitgeschakeld + reset gevraagd" meldt');
+    this.resetPendingTimer = setTimeout(() => {
+      this.resetPendingTimer = undefined;
+      this.log.warn('Paneel-reset: binnen 60s geen "uitgeschakeld + reset gevraagd" van het paneel gezien — geen RESET gestuurd');
+    }, 60_000);
+  }
+
+  private onPanelUnsetAwaitingReset(): void {
+    const wasKnown = this.panelUnsetAwaitingReset;
+    this.panelUnsetAwaitingReset = true;
+    if (!wasKnown) this.log.info('Paneel uitgeschakeld, alarm-vlag 2: paneel wacht op reset');
+    if (this.resetPendingTimer) this.sendPanelReset();
+  }
+
+  private sendPanelReset(): void {
+    this.cancelResetPending();
+    if (this.resetVerifyTimer) return; // RESET al onderweg, controle loopt nog
+    this.log.info('Stuur RESET naar het paneel (alarmgeheugen wissen)');
+    this.seasoftClient?.sendGroupCommand(this.seasoftGroup, GROUP_CMD.RESET);
+    this.resetVerifyTimer = setTimeout(() => {
+      this.resetVerifyTimer = undefined;
+      if (this.panelUnsetAwaitingReset) {
+        this.log.warn('Paneel meldt 10s na RESET nog steeds "reset gevraagd" — reset niet geaccepteerd, code op bediendeel nodig');
+        this.reporter?.onPanelResetFailed();
+      }
+    }, 10_000);
+  }
+
+  private onPanelResetCleared(): void {
+    if (this.panelUnsetAwaitingReset) this.log.info('Paneel-reset bevestigd (alarm-vlag 0)');
+    this.panelUnsetAwaitingReset = false;
+    this.cancelResetPending();
+    if (this.resetVerifyTimer) {
+      clearTimeout(this.resetVerifyTimer);
+      this.resetVerifyTimer = undefined;
+    }
+  }
+
+  private cancelResetPending(): void {
+    if (this.resetPendingTimer) {
+      clearTimeout(this.resetPendingTimer);
+      this.resetPendingTimer = undefined;
     }
   }
 

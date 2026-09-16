@@ -62,12 +62,27 @@ export class SecuritySystemAccessory {
         cmd = GROUP_CMD.PART;
         break;
       case AlarmState.DISARMED:
-        // Als het paneel nog niet bevestigd heeft dat het ingeschakeld is
-        // (currentState is nog DISARMED) → ABORT om lopende activatie te annuleren.
-        // Als het paneel al gemeld heeft dat het ingeschakeld is → UNSET.
-        cmd = (this.currentState === AlarmState.DISARMED)
-          ? GROUP_CMD.ABORT
-          : GROUP_CMD.UNSET;
+        if (this.currentState === AlarmState.DISARMED) {
+          // Paneel al uit maar wacht nog op een reset na een alarm → nogmaals
+          // "uit" in de Home-app = reset (wist "reset gevraagd" op het bediendeel).
+          if (this.platform.isPanelAwaitingReset()) {
+            this.platform.requestPanelReset();
+            return;
+          }
+          // Paneel heeft nog niet bevestigd dat het ingeschakeld is → ABORT om
+          // de lopende inschakeling te annuleren.
+          cmd = GROUP_CMD.ABORT;
+          break;
+        }
+        // Paneel is ingeschakeld (of in alarm) → UNSET. Tijdens een alarm laat
+        // het paneel daarna het alarmgeheugen staan; de platform-laag stuurt dan
+        // zelf de RESET zodra het paneel "uitgeschakeld + reset gevraagd" meldt.
+        cmd = GROUP_CMD.UNSET;
+        if (this.currentState === AlarmState.ALARM_TRIGGERED) {
+          client.sendGroupCommand(this.seasoftGroup, cmd);
+          this.platform.requestPanelReset();
+          return;
+        }
         break;
       default:
         this.platform.log.warn(`Unknown target state: ${value}`);

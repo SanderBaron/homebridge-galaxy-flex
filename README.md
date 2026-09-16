@@ -121,7 +121,9 @@ Honeywell Galaxy Flex
 | SecuritySystem | HomeKit accessory voor alarm aan/uit/nacht/thuis |
 | Zone sensors | Contact, beweging en rookmelders als HomeKit accessories |
 | Gebruikersensoren | ContactSensor per gebruiker voor gepersonaliseerde meldingen |
-| Hue alarmlichten | Snapshot → alarm scène → automatisch herstel |
+| Hue alarmlichten | Snapshot → alarm scène → automatisch herstel (altijd, ook als een lamp faalt) |
+| Paneel-reset | Uitschakelen vanuit HomeKit tijdens een alarm stuurt UNSET én daarna RESET zodra het paneel "reset gevraagd" meldt; nogmaals "uit" in de Home-app = opnieuw RESET |
+| Eigen logbestand | `galaxy-flex.log` in de Homebridge-map, inclusief ruwe MQTT-berichten; 72 uur bewaard, ruimt zichzelf op (harde grens 10 MB) |
 | Custom dashboard | Live status in HomeBridge UI |
 
 ---
