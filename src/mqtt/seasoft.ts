@@ -42,6 +42,12 @@ export interface UserEvent {
   text: string;     // panel description, e.g. "VOLL. ING Sander"
 }
 
+export interface PanelEvent {
+  code: string;     // SIA code: RR (herstart), YC/YK (comms storing/herstel)
+  text: string;     // panel description, e.g. "GEH. OK", "+PANEEL   M/K"
+  device: string;   // module address, e.g. "004"
+}
+
 export interface MqttAuth { username?: string; password?: string }
 
 export class SeasoftMqttClient extends EventEmitter {
@@ -171,7 +177,7 @@ export class SeasoftMqttClient extends EventEmitter {
     // Event with user info: galaxy/<uniqueId>/event/attr
     if (topic === `${base}/event/attr`) {
       try {
-        const ev = JSON.parse(payload) as { userid?: string; code?: string; text?: string };
+        const ev = JSON.parse(payload) as { userid?: string; code?: string; text?: string; device?: string };
         const ARM_CODES = ['CL','CR','CG','OP','OR','OG','CA'];
         if (ev.userid && ev.code && ARM_CODES.includes(ev.code)) {
           this.emit('user-event', {
@@ -179,6 +185,16 @@ export class SeasoftMqttClient extends EventEmitter {
             code:   ev.code,
             text:   ev.text ?? '',
           } as UserEvent);
+        }
+        // Paneel-events zonder gebruiker: herstart (RR, "GEH. OK") en
+        // communicatiestoring/herstel (YC/YK, bijv. "+PANEEL M/K").
+        const PANEL_CODES = ['RR','YC','YK'];
+        if (ev.code && PANEL_CODES.includes(ev.code)) {
+          this.emit('panel-event', {
+            code:   ev.code,
+            text:   ev.text ?? '',
+            device: ev.device ?? '',
+          } as PanelEvent);
         }
       } catch { /* malformed JSON */ }
       return;

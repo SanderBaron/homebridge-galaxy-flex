@@ -24,6 +24,7 @@ export class AlarmReporter {
   private lastDisarm?: { name: string; time: Date };
   private session?:    { start: Date; type: 'fire' | 'intrusion'; zones: string[] };
   private lastClearedAt = 0;
+  private resetRequiredNotified = false;
 
   constructor(
     private readonly log: Logger,
@@ -103,6 +104,45 @@ export class AlarmReporter {
       'De reset vanuit HomeKit is niet geaccepteerd. Voer je code in op het bediendeel.',
       `Tijd: ${tijd(new Date())}`,
     ].join('\n'));
+  }
+
+  // Paneel is opnieuw opgestart (SIA RR, "GEH. OK" — zoals op 27-10-2026).
+  onPanelRestart(): void {
+    if (!this.opts.onFault) return;
+    this.stuur([
+      '⚠️ STORING alarmsysteem',
+      'Het paneel is opnieuw opgestart (spontane herstart of spanningsonderbreking). Mogelijk volgt een korte sirenepuls en vraagt het bediendeel om een reset.',
+      'Gebeurt dit vaker: laat accu en voeding controleren.',
+      `Tijd: ${tijd(new Date())}`,
+    ].join('\n'));
+  }
+
+  // Communicatiestoring gemeld/hersteld door het paneel (SIA YC/YK).
+  onPanelComms(restored: boolean, detail: string): void {
+    if (!this.opts.onFault) return;
+    const now = tijd(new Date());
+    this.stuur(restored
+      ? `✅ Communicatiestoring opgeheven (${detail}, ${now})`
+      : `⚠️ STORING alarmsysteem\nHet paneel meldt een communicatiestoring: ${detail}\nTijd: ${now}`);
+  }
+
+  // Paneel wacht al een tijd op een handmatige reset ("reset gevraagd" op het
+  // bediendeel) zonder dat er een alarm of HomeKit-uitschakeling aan voorafging.
+  onPanelResetRequired(): void {
+    if (!this.opts.onFault) return;
+    this.resetRequiredNotified = true;
+    this.stuur([
+      '⚠️ Paneel wacht op reset',
+      'Op het bediendeel staat "reset gevraagd". Voer je code in op het bediendeel, of schakel het alarm in de Home-app nogmaals uit.',
+      `Tijd: ${tijd(new Date())}`,
+    ].join('\n'));
+  }
+
+  // Reset alsnog uitgevoerd — alleen melden als we eerst om een reset vroegen.
+  onPanelResetDone(): void {
+    if (!this.resetRequiredNotified) return;
+    this.resetRequiredNotified = false;
+    this.stuur(`✅ Paneel-reset uitgevoerd (${tijd(new Date())})`);
   }
 
   // Storing-melder aan/uit.

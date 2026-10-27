@@ -13,7 +13,7 @@ import { SiaMessage, AlarmState, codeToAlarmState, isAlarmCode, isRestoreCode } 
 import { SecuritySystemAccessory } from './accessories/security-system';
 import { ZoneSensorAccessory, ZoneConfig } from './accessories/zone-sensor';
 import { MqttBroker } from './mqtt/broker';
-import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, GROUP_STATE, GROUP_CMD } from './mqtt/seasoft';
+import { SeasoftMqttClient, ZoneStateEvent, GroupStateEvent, PanelEvent, GROUP_STATE, GROUP_CMD } from './mqtt/seasoft';
 import { FileLog, withFileLog } from './file-log';
 import { HueClient } from './hue/hue-client';
 import { AlarmLighting, AlarmLightingConfig } from './hue/alarm-lighting';
@@ -89,6 +89,12 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private faultSensor?: FaultSensorAccessory;
   private readonly zonesInAlarm: Set<number> = new Set(); // zones die nu attr.alarm:1 melden
   private faultTimer?: ReturnType<typeof setTimeout>;
+  // De Storing-melder heeft twee bronnen die elkaar niet mogen wegdrukken:
+  // de group/alarm-storing (genericFault, bestaand pad) en paneel-events zoals
+  // herstart/comms-storing (panelFault, met eigen auto-clear).
+  private genericFault = false;
+  private panelFault = false;
+  private panelFaultTimer?: ReturnType<typeof setTimeout>;
   private readonly stateFilePath: string;
   private readonly fileLog: FileLog;
 
@@ -96,6 +102,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private panelUnsetAwaitingReset = false;             // paneel uit, alarm-vlag 2 ("reset gevraagd")
   private resetPendingTimer?: ReturnType<typeof setTimeout>; // HomeKit-uitschakeling wacht op paneel
   private resetVerifyTimer?: ReturnType<typeof setTimeout>;  // controle of het paneel de RESET slikte
+  private resetRequiredNotifyTimer?: ReturnType<typeof setTimeout>; // "reset gevraagd" blijft staan → iMessage
 
   constructor(log: Logging, config: PlatformConfig, api: API) {
     // Alles wat de plugin logt gaat ook naar een eigen bestand (72u, ruimt zichzelf op)
@@ -264,6 +271,7 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
         this.reporter?.onUserEvent(sensor.name, armed);
       }
     });
+    this.seasoftClient.on('panel-event', (ev: PanelEvent) => this.handlePanelEvent(ev));
     this.seasoftClient.on('online', (info: { version: string }) => {
       this.writeState({ seasoftOnline: true, seasoftVersion: info.version });
     });
@@ -499,7 +507,17 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   private onPanelUnsetAwaitingReset(): void {
     const wasKnown = this.panelUnsetAwaitingReset;
     this.panelUnsetAwaitingReset = true;
-    if (!wasKnown) this.log.info('Paneel uitgeschakeld, alarm-vlag 2: paneel wacht op reset');
+    if (!wasKnown) {
+      this.log.info('Paneel uitgeschakeld, alarm-vlag 2: paneel wacht op reset');
+      // Staat "reset gevraagd" er na 60s nog steeds en resetten wij niet zelf
+      // (geen HomeKit-flow actief) → iMessage, anders merkt niemand het 's nachts.
+      this.resetRequiredNotifyTimer = setTimeout(() => {
+        this.resetRequiredNotifyTimer = undefined;
+        if (this.panelUnsetAwaitingReset && !this.resetVerifyTimer && !this.resetPendingTimer) {
+          this.reporter?.onPanelResetRequired();
+        }
+      }, 60_000);
+    }
     if (this.resetPendingTimer) this.sendPanelReset();
   }
 
@@ -521,6 +539,11 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
     if (this.panelUnsetAwaitingReset) this.log.info('Paneel-reset bevestigd (alarm-vlag 0)');
     this.panelUnsetAwaitingReset = false;
     this.cancelResetPending();
+    if (this.resetRequiredNotifyTimer) {
+      clearTimeout(this.resetRequiredNotifyTimer);
+      this.resetRequiredNotifyTimer = undefined;
+    }
+    this.reporter?.onPanelResetDone();
     if (this.resetVerifyTimer) {
       clearTimeout(this.resetVerifyTimer);
       this.resetVerifyTimer = undefined;
@@ -538,13 +561,14 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
   // zone-alarm en geen ALARM_TRIGGERED is — zo voorkomen we een valse Storing
   // tijdens een echt alarm waarbij group/alarm net vóór de zone/attr binnenkomt.
   private scheduleFault(): void {
-    if (this.faultSensor?.isFault() || this.faultTimer) return;
+    if (this.genericFault || this.faultTimer) return;
     this.faultTimer = setTimeout(() => {
       this.faultTimer = undefined;
       if (this.zonesInAlarm.size === 0
           && this.securitySystem?.getCurrentState() !== AlarmState.ALARM_TRIGGERED) {
         this.log.info('Systeemstoring actief (group/alarm zonder zone-alarm) — Storing-melder AAN');
-        this.faultSensor?.setFault(true);
+        this.genericFault = true;
+        this.updateFaultSensor();
         this.reporter?.onFault(true);
         this.writeState({});
       }
@@ -556,12 +580,69 @@ export class GalaxyFlexPlatform implements DynamicPlatformPlugin {
       clearTimeout(this.faultTimer);
       this.faultTimer = undefined;
     }
-    if (this.faultSensor?.isFault()) {
+    if (this.genericFault) {
       this.log.info('Systeemstoring opgeheven — Storing-melder UIT');
-      this.faultSensor.setFault(false);
+      this.genericFault = false;
+      this.updateFaultSensor();
       this.reporter?.onFault(false);
       this.writeState({});
     }
+  }
+
+  private updateFaultSensor(): void {
+    const fault = this.genericFault || this.panelFault;
+    if (this.faultSensor && this.faultSensor.isFault() !== fault) {
+      this.faultSensor.setFault(fault);
+    }
+  }
+
+  // ── Paneel-events: herstart (RR) en communicatiestoring (YC/YK) ──────────────
+  //
+  // Gezien op 27-10-2026 23:50: spontane paneel-herstart ("GEH. OK") met
+  // sirenepuls en "reset gevraagd", zonder stroomuitval in huis. Deze events
+  // pulseren de Storing-melder (HomeKit) en sturen een iMessage-verslag.
+
+  private handlePanelEvent(ev: PanelEvent): void {
+    const detail = ev.text.trim().replace(/\s+/g, ' ');
+    switch (ev.code) {
+      case 'RR':
+        this.log.warn(`Paneel opnieuw opgestart (RR: ${detail}) — Storing-melder puls + iMessage`);
+        this.raisePanelFault(60_000);
+        this.reporter?.onPanelRestart();
+        break;
+      case 'YC':
+        this.log.warn(`Paneel meldt communicatiestoring (YC: ${detail}, module ${ev.device})`);
+        this.raisePanelFault(30 * 60_000);
+        this.reporter?.onPanelComms(false, detail);
+        break;
+      case 'YK':
+        this.log.info(`Communicatiestoring opgeheven (YK: ${detail})`);
+        this.clearPanelFault();
+        this.reporter?.onPanelComms(true, detail);
+        break;
+    }
+  }
+
+  private raisePanelFault(autoClearMs: number): void {
+    this.panelFault = true;
+    this.updateFaultSensor();
+    this.writeState({});
+    if (this.panelFaultTimer) clearTimeout(this.panelFaultTimer);
+    this.panelFaultTimer = setTimeout(() => {
+      this.panelFaultTimer = undefined;
+      this.clearPanelFault();
+    }, autoClearMs);
+  }
+
+  private clearPanelFault(): void {
+    if (this.panelFaultTimer) {
+      clearTimeout(this.panelFaultTimer);
+      this.panelFaultTimer = undefined;
+    }
+    if (!this.panelFault) return;
+    this.panelFault = false;
+    this.updateFaultSensor();
+    this.writeState({});
   }
 
   private handleSiaMessage(msg: SiaMessage): void {
